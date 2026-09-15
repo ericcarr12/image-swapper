@@ -2,9 +2,7 @@
 
 A batch image converter that resizes, crops, compresses, and re-encodes
 images to JPG, PNG, or WEBP — entirely in the browser. Nothing is uploaded
-anywhere; every conversion runs on-device via the Canvas API.
-
-**[Live demo](#)** — add your hosted link here
+anywhere; every conversion runs on-device via the Canvas API. Live at [promptcutter.com](https://www.imageswapper.com).
 
 ## What it does
 
