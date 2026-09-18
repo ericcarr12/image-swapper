@@ -1,0 +1,2157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Image Swapper — Convert to JPG/WEBP/PNG</title>
+<link rel="icon" type="image/x-icon" href="images/imageswapper.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,1..1000&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --black:#000;
+  --trans-black: rgba(0,0,0,.66);
+  --white:#fff;
+  --panel:#0a0a0a;
+  --panel2:#151515;
+  --swapblue: #9EFDFD;
+  --good:#3ecf8e;
+  --bad:#ff5c5c;
+  /* darker than --bad specifically for white-on-red hover fills (thumb-del, zoom-reset-btn):
+     --bad only gives 3.03:1 against white, under the 4.5:1 text-contrast minimum. This
+     passes at ~5.1:1 while staying clearly "red/danger". */
+  --bad-contrast:#cc3333;
+  --border:#999;
+  --hairline: rgba(255,255,255,.14);
+  --text:#e8eaed;
+  --muted:#b7bcc4;
+  --chevron-down: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%23ffffff' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+* { margin: 0; box-sizing: border-box; }
+html, body {
+  min-height: 100dvh;
+  overflow-x: hidden;
+  background:
+      url('images/bg-top.svg') center top / 100% auto  no-repeat fixed,
+      url('images/bg-bot.svg') center bottom / 100% auto no-repeat fixed,
+      var(--black);
+  font-family: "Inter", system-ui, sans-serif;
+  color: var(--white);
+}
+
+.wrap { max-width:1240px; width:100%; margin:0 auto; min-width:0; }
+
+/* ---------- page frame: nav / vertically-centered content / footer ---------- */
+.flexall {
+  display:flex;
+  flex-direction:column;
+  min-height:100vh;
+}
+.abs-center {
+  flex:1 1 auto;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  overflow-y:auto;
+  /* reserves the scrollbar's width whether or not it's actually needed right now, so
+     collapsing/expanding a rail — which changes the page's total height, and therefore
+     whether this scrollbar appears at all — can't shrink/grow everything else's available
+     width by the scrollbar's width. This was the actual cause of the rails (and center
+     pane) changing width based on collapsed/expanded state. */
+  scrollbar-gutter: stable;
+  padding:16px;
+}
+
+
+.dropzone{
+  max-width: 672px;
+  width:100%;
+  margin:0 auto;
+  border:2px dashed var(--border); border-radius:10px; padding:1.5rem;
+  text-align:center; cursor:pointer; transition:border-color .15s, background .15s;
+  background:var(--trans-black); flex:1;
+}
+.dropzone-content {
+  display:flex; flex-direction:column; align-items:center; gap:24px;
+}
+/* .flexcol is a shared utility (also used for left-aligned form-field groups elsewhere, like
+   Width/Height in Image Details) that defaults to align-items:flex-start. Left uncorrected,
+   each .flexcol group here shrinks to its own content's width and left-anchors its children
+   within that box — so even though the box itself sits centered, short lines end up flush
+   against whatever the group's widest line happens to be, reading as "left-aligned" overall,
+   especially once text starts wrapping at narrow widths. Scoped to just this dropzone intro
+   content so it doesn't affect .flexcol's left-aligned usage anywhere else in the app. */
+.dropzone-content .flexcol { align-items:center; }
+.dropzone.drag{border-color:var(--swapblue); background:#1a2030;}
+input[type=file]{display:none;}
+
+.page-drop-overlay{
+  position:fixed; inset:0; z-index:999; display:none;
+  align-items:center; justify-content:center; pointer-events:none;
+  background:rgba(15,17,21,.82); backdrop-filter:blur(2px);
+}
+.page-drop-overlay.active{display:flex;}
+.page-drop-overlay .box{
+  border:2px dashed var(--swapblue); border-radius:16px; padding:48px 64px;
+  text-align:center; color:var(--text); font-size:16px; font-weight:600;
+  background:rgba(23,26,33,.6);
+}
+.page-drop-overlay .box span{display:block; margin-top:6px; font-size:13px; font-weight:400; color:var(--muted);}
+
+.modal-overlay{
+  position:fixed; inset:0; z-index:1000; display:none;
+  align-items:center; justify-content:center; background:rgba(15,17,21,.7);
+}
+.modal-overlay.active{display:flex;}
+.modal-panel{
+  background:var(--panel); border:1px solid var(--hairline); border-radius:12px;
+  padding:1.5rem; max-width:640px; width:100%;
+  position:relative;
+}
+.modal-panel p{margin:0 0 14px; font-size:1em; color:var(--white); line-height:1.5;}
+/* close X, top-right corner of every modal */
+.modal-close-btn{
+  position:absolute; top:12px; right:12px; width:40px; height:40px; padding:0;
+  border:none; background:transparent; color:var(--white); border-radius:8px;
+}
+.modal-close-btn:hover{ background:#1f1f1f; }
+.modal-checkbox{
+  display:flex; align-items:center; gap:8px; font-size:1em; color:var(--white);
+  margin-bottom:16px; cursor:pointer; user-select:none;
+}
+/* checkboxes throughout the app match the "Lock aspect ratio" checkbox's look, at 40px */
+.checkbox-row input, .modal-checkbox input{ accent-color:var(--swapblue); width:24px; height:24px; }
+.modal-actions{display:flex; justify-content:flex-end; gap:8px;}
+
+/* wider modal variant + scrollable body, used by Terms of Use */
+.modal-panel.wide{ width:520px; }
+.modal-scroll{ max-height:50vh; overflow-y:auto; margin-bottom:16px; padding-right:8px; }
+.modal-scroll h3{ margin:16px 0 6px; color:var(--white); font-size:1.1em; font-weight:300; }
+.modal-scroll h3:first-child{ margin-top:0; }
+.modal-scroll p{ margin:0 0 12px; font-size:0.9em; color:var(--muted); line-height:1.6; }
+
+/* share modal */
+.share-link-row{ display:flex; gap:8px; margin-bottom:16px; }
+.share-link-row input{ flex:1; }
+.share-options-row{ display:flex; gap:10px; justify-content:center; margin-bottom:16px; flex-wrap:wrap; }
+/* matches the icon-btn (Zoom In/Out) style exactly */
+.share-option{
+  padding:6px; border-radius:8px; background:transparent; border:2px solid var(--swapblue);
+  display:flex; align-items:center; justify-content:center; cursor:pointer;
+  transition:background .15s, opacity .15s;
+}
+.share-option img{ width:18px; height:18px; }
+.share-option:hover{ background:#1f1f1f; }
+
+/* ---------- shared button system ---------- */
+button {
+  font-size: 1em;
+  font-family:inherit;
+  font-weight:500;
+  border: solid 2px var(--swapblue);
+  border-radius: 8px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  padding: 6px 12px;
+  background:transparent;
+  color:var(--white);
+  cursor:pointer;
+  transition:background .15s, opacity .15s;
+}
+.btn-primary { background-color:var(--swapblue); color:var(--black); }
+.btn-primary:hover{ background-color:#7cf2f2; }
+.btn-secondary { background-color:var(--black); color:var(--white); }
+.btn-secondary:hover{ background-color:#161616; }
+button:disabled{opacity:.4; cursor:not-allowed;}
+.icon-btn{ padding:6px; }
+.del-btn{ padding:8px; border:none; }
+
+
+.flexcol { display:flex; flex-direction:column; align-items:flex-start; }
+.gap24 { gap: 24px; } .gap16 { gap: 16px; } .gap8 { gap: 8px; }
+.line { height:1px; background:var(--border); width:100%; }
+.top-border { padding-top:24px; border-top: solid 1px var(--border); }
+
+nav {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:16px 24px;
+}
+nav div { display:flex; align-items:center; gap:16px; }
+footer {
+  display:flex; flex-direction:column; align-items:center; text-align:center;
+  gap: 16px; padding:16px 24px;
+}
+.row-align, .row-align-resp { display:flex; align-items:center; gap:16px; }
+.row-align8 { display:flex; align-items:center; gap:8px; }
+.tooltip-icon{ cursor:help; }
+/* position:fixed (not absolute) so this escapes .rail's overflow:hidden clipping — same
+   reason the Save-all popover menu uses fixed positioning. Coordinates are computed by JS
+   from the hovered/focused icon's bounding rect. */
+.tooltip-bubble{
+  position:fixed; z-index:2000; display:none;
+  max-width:220px; background:var(--panel2); color:var(--white);
+  border:1px solid var(--hairline); border-radius:8px;
+  padding:8px 10px; font-size:12px; line-height:1.4; text-align:left;
+  pointer-events:none;
+}
+.row-space { display:flex; align-items:center; gap:16px; justify-content:space-between; width:100%; }
+h1 { font-size: 2em; font-weight:200; color:var(--white); font-family: "Google Sans Flex", sans-serif; font-optical-sizing: auto;}
+h2 { font-size: 1.8em; font-weight:200; color:var(--swapblue); font-family: "Google Sans Flex", sans-serif; font-optical-sizing: auto; }
+h3 { font-size: 1.5em; font-weight:200; color:var(--white); }
+h4 { font-size: 1.1em; font-weight:300; color:var(--white); }
+p, li, label { font-size: 1em; font-weight:200; color:var(--white); }
+label { display:inline-block; }
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  border: 0;
+}
+ul { list-style:disc; padding-left:20px; margin:0; }
+li { line-height:1.8em; text-align:left;}
+a { color:var(--white); text-decoration:none; font-size:1em; cursor:pointer; }
+a:hover { color:var(--swapblue); }
+small { font-size: 0.875em; font-weight:300; color:var(--white); }
+.logo { width: auto; height: 28px;}
+
+
+
+
+/* generic form controls used throughout the workspace */
+.text-input, input[type=number]{
+  background:var(--black); color:var(--white); border:2px solid var(--white);
+  border-radius:8px; padding:8px 12px; font-family:inherit; font-size:1em; min-height:2.5rem;
+  field-sizing: content;
+  min-width: 50px;
+  max-width: 100%;
+}
+/* hide the native number-input spin buttons everywhere; the field is still type="number"
+   underneath, so keyboard/screen-reader/mobile-keypad behavior is unaffected */
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button{
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type=number]{
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+/* dropdowns: custom chevron, sized like the text/number inputs (content-based width, not stretched) */
+select{
+  cursor:pointer;
+  appearance:none;
+  -webkit-appearance:none;
+  -moz-appearance:none;
+  background:var(--black); color:var(--white); border:2px solid var(--white);
+  border-radius:8px; font-family:inherit; font-size:1em; min-height:2.5rem;
+  field-sizing: content;
+  min-width: 50px;
+  max-width: 100%;
+  padding:6px 2rem 6px 12px;
+  background-image:var(--chevron-down);
+  background-repeat:no-repeat;
+  background-position:right 0.5rem center;
+  background-size:12px 8px;
+}
+
+/* ---------- workspace ---------- */
+.workspace{ width:100%; min-width:0; max-width:100%; margin:0 auto; }
+/* center-pane and rail-stack are the two workspace-grid children, in that DOM order, at
+   every breakpoint — rail-stack itself always holds left-rail then right-rail (Image
+   Details above Export). This keeps DOM/tab order matching the visual reading order
+   everywhere: center pane reads first (it's the wide column), then the rail column
+   top-to-bottom (left-rail, then right-rail) — whether that column sits beside center
+   (>=1000px) or below it (<=1000px). No JS-driven wrapper needed any more: rail-stack is
+   a real, static flex container in the markup, so left-rail+right-rail are always
+   DOM-adjacent and their combined height is sized purely by their own content, independent
+   of center-pane's height. (Any approach where a rail instead shares a row/line/track with
+   center-pane recreates the classic bug regardless of Grid vs Flexbox: that row/line/track's
+   size gets set by its TALLEST member, leaving a visible gap below the shorter rail.)
+   Center pane itself also has min-width:0 (below) so Compare's absolutely-positioned
+   content can't make its track wider or narrower than this ratio dictates. */
+.workspace-grid{
+  display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:14px; align-items:start; margin-top:14px;
+  grid-template-areas: "center rails";
+}
+.center-pane{ grid-area:center; }
+.rail-stack{
+  display:flex; flex-direction:column; gap:14px; min-width:0;
+  grid-area: rails;
+}
+@media (max-width:1000px){
+  .workspace-grid{
+    grid-template-columns:1fr;
+    grid-template-areas:
+      "center"
+      "rails";
+  }
+}
+
+/* thumbnail row */
+.thumb-row{
+  background:var(--panel);  border-radius:10px;
+  padding:10px; display:flex; align-items:stretch; gap:8px;
+  max-width:100%; overflow:hidden;
+}
+.thumb-count-cell{
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:12px; min-width:96px; margin-right:16px;
+}
+/* wraps the left-chevron / strip / right-chevron trio — this (not the whole thumb-row) is the
+   flexible, shrinkable unit that activates internal scrolling once more thumbnails are added
+   than fit in the available width, same safety spec as elsewhere: flex:1 1 0 + min-width:0 +
+   max-width:100% + overflow:hidden. */
+.thumb-scroll-group{
+  display:flex; align-items:stretch; gap:8px;
+  flex:1 1 0; min-width:0; max-width:100%; overflow:hidden;
+}
+.scroll-btn{
+  flex:0 0 auto; width:28px; padding:0;
+  background:transparent; color:var(--swapblue);
+}
+.scroll-btn:disabled{opacity:.2;}
+/* left/right scroll chevrons reuse the same chevron artwork as the dropdown carets
+   (--chevron-down), just rotated 90deg so they point left/right instead of down. */
+.scroll-chevron{
+  display:inline-block; width:10px; height:14px;
+  background-image:var(--chevron-down);
+  background-repeat:no-repeat; background-position:center; background-size:contain;
+}
+.scroll-chevron.left{ transform:rotate(90deg); }
+.scroll-chevron.right{ transform:rotate(-90deg); }
+.thumb-scroll{
+  display:flex; gap:8px; overflow-x:auto; overflow-y:hidden; scroll-behavior:smooth;
+  flex:1 1 0; min-width:0; max-width:100%;
+}
+.thumb-scroll::-webkit-scrollbar{ height:6px; }
+.thumb-scroll::-webkit-scrollbar-thumb{ background:var(--hairline); border-radius:4px; }
+.thumb{
+  position:relative; flex:0 0 auto; width:78px; height:78px; border-radius:8px; overflow:hidden;
+  border:2px solid var(--hairline); cursor:pointer; background:var(--black);
+}
+.thumb.active{border-color:var(--swapblue);}
+.thumb img{width:100%; height:100%; object-fit:cover; display:block;}
+.thumb-num{
+  position:absolute; top:4px; left:4px; font-size:0.875em; font-weight:700; color:var(--swapblue);
+  text-shadow:0 1px 3px rgba(0,0,0,.8);
+}
+.thumb-del{
+  position:absolute; top:3px; right:3px; width:24px; height:24px; border-radius:50%;
+  background:rgba(0,0,0,.75); color:#fff; border:none; line-height:24px;
+  padding:0; cursor:pointer; display:flex; align-items:center; justify-content:center;
+}
+.thumb-del:hover{background:var(--bad-contrast);}
+
+/* rails */
+.rail{
+  background:var(--panel);
+  border:solid 1px var(--swapblue);
+  border-radius:12px;
+  overflow:hidden;
+  /* collapsed (rail-head only) vs expanded (rail-head + rail-body) content have very
+     different min-content widths; without an explicit width:100%/min-width:0 the rail
+     itself (a grid/flex item) can end up sized differently between the two states instead
+     of always matching its track/column's width exactly. */
+  width:100%;
+  min-width:0;
+}
+.rail-head{
+  display:flex; align-items:center; justify-content:space-between; padding:12px 14px;
+  cursor:pointer;
+}
+.rail-head h2 { font-size: 1em; font-weight:300; font-family:inherit; color:var(--swapblue); }
+.rail-head span{font-size:13px; font-weight:700; display:flex; align-items:center; gap:6px;}
+.collapse-btn{ width:26px; height:26px; padding:0; border:none; background:transparent; color:var(--white); transition:transform .15s; }
+.rail.collapsed .collapse-btn{ transform:rotate(180deg); }
+.rail.collapsed .rail-body{ display:none; }
+.rail-body{ padding:16px; display:flex; flex-direction:column; gap:24px; min-width:0; }
+
+/* left rail fields */
+.field-row{ position:relative; }
+.filename-input{ width:100%; padding-right:32px; }
+.pencil-ico{ position:absolute; right:10px; top:50%; transform:translateY(-50%); color:var(--muted); font-size:13px; pointer-events:none; }
+.field-with-unit{ display:flex; align-items:center; gap:8px; }
+.field-with-unit input{ width:100%; }
+.field-with-unit span{ font-size:11px; color:var(--muted); white-space:nowrap; }
+.checkbox-row{ display:flex; align-items:center; gap:8px; font-size:14px; color:var(--text); cursor:pointer; user-select:none; }
+.resolution-row{ display:flex; align-items:center; gap:8px; width:100%; }
+.resolution-row .field-with-unit{ flex:1; }
+#cropBtn.active{ background:var(--swapblue); color:var(--black); }
+
+.quality-row{display:flex; align-items:center; gap:16px; width:100%;}
+.quality-row input[type=range]{flex:1; accent-color:var(--swapblue);}
+#qualityNum{
+  field-sizing: fixed;
+  width: calc(3ch + 40px); /* up to 3 digits (max 100) + left padding + room for the % icon */
+  padding-right: 28px;
+  text-align:right;
+}
+.quality-status{ font-size:0.875em; color:var(--white); text-align:center; }
+
+/* center pane */
+/* min-width:0 stops an oversized image (Actual size / Fill / 100% width-height / Compare) from
+   forcing its 1fr grid track — and this flex column — to grow past their intended share of the row */
+.center-pane{ background:var(--panel); border-radius:10px; overflow:hidden; display:flex; flex-direction:column; min-width:0; }
+.view-toggle-row{ display:flex; }
+.view-btn{
+  flex:1; border:none; border-radius:0; background:transparent; color:var(--white);
+  font-weight:300; padding:12px; cursor:pointer;
+}
+.view-btn.active{ background:var(--swapblue); color:var(--black); font-weight:500; }
+.checker{
+  background-image:
+    linear-gradient(45deg, #1c1c1c 25%, transparent 25%),
+    linear-gradient(-45deg, #1c1c1c 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #1c1c1c 75%),
+    linear-gradient(-45deg, transparent 75%, #1c1c1c 75%);
+  background-size:16px 16px;
+  background-position:0 0, 0 8px, 8px -8px, -8px 0px;
+  background-color:#000;
+  height:440px; width:100%; min-width:0; display:flex; align-items:center; justify-content:center;
+  position:relative; overflow:hidden;
+  /* let JS drive the pointer (grab/grabbing) instead of the browser's own touch gestures,
+     so a finger-drag pans the zoomed image rather than scrolling the page underneath it */
+  touch-action: none;
+}
+.checker img{ display:block; max-width:100%; max-height:100%; }
+.checker .empty{color:var(--muted); font-size:12px;}
+.compare-wrap{ position:absolute; inset:0; display:none; }
+.compare-wrap.active{ display:block; }
+.compare-half{ position:absolute; inset:0; overflow:hidden; display:flex; align-items:center; justify-content:center; }
+.compare-half img{ max-width:none; }
+/* clip-path insets and divider/handle position are set inline by JS (draggable split) —
+   these are just the initial 50/50 fallback before JS runs */
+.compare-left{ clip-path: inset(0 50% 0 0); }
+.compare-right{ clip-path: inset(0 0 0 50%); }
+.compare-divider{ position:absolute; top:0; bottom:0; left:50%; width:2px; background:var(--swapblue); transform:translateX(-1px); pointer-events:none; }
+.compare-handle{ position:absolute; top:0; bottom:0; left:50%; width:24px; margin-left:-12px; cursor:ew-resize; z-index:5; }
+.compare-label{
+  position:absolute; top:8px; font-size:10px; font-weight:700; color:#fff; background:rgba(0,0,0,.6);
+  padding:3px 7px; border-radius:4px; text-transform:uppercase; letter-spacing:.04em;
+}
+.compare-label.left-label{ left:8px; } .compare-label.right-label{ right:8px; }
+/* cropDimsLabel sits earlier in the DOM than .crop-overlay, so without a z-index the crop
+   box's own dimming box-shadow (below) paints over it whenever the label's corner falls
+   outside the crop rectangle — the label's color is still #fff, but a 55%-black layer
+   compositing on top of it reads as gray. Force it above that overlay. */
+#cropDimsLabel{ z-index:6; }
+
+.crop-overlay{position:absolute; inset:0; pointer-events:none;}
+.crop-box{
+  position:absolute; border:1.5px solid #fff; box-shadow:0 0 0 9999px rgba(0,0,0,.55);
+  cursor:move; pointer-events:auto;
+}
+.crop-handle{ position:absolute; width:10px; height:10px; background:#fff; border:1px solid var(--swapblue); box-sizing:border-box; pointer-events:auto; }
+.ch-nw{top:-5px; left:-5px; cursor:nwse-resize;}
+.ch-n{top:-5px; left:50%; margin-left:-5px; cursor:ns-resize;}
+.ch-ne{top:-5px; right:-5px; cursor:nesw-resize;}
+.ch-e{top:50%; right:-5px; margin-top:-5px; cursor:ew-resize;}
+.ch-se{bottom:-5px; right:-5px; cursor:nwse-resize;}
+.ch-s{bottom:-5px; left:50%; margin-left:-5px; cursor:ns-resize;}
+.ch-sw{bottom:-5px; left:-5px; cursor:nesw-resize;}
+.ch-w{top:50%; left:-5px; margin-top:-5px; cursor:ew-resize;}
+
+.viewer-controls-row{
+  display:flex; align-items:center; justify-content:space-between; gap:16px; padding:10px;
+}
+.viewer-controls-row select{ min-width:150px; }
+/* percentage fields: fixed-width number input with a persistent "%" overlay, same pattern as the
+   filename field's pencil icon — input gets right-padding to clear the icon. Shared by zoom and quality. */
+.pct-field{ position:relative; }
+.pct-field .pct-ico{ position:absolute; right:10px; top:50%; transform:translateY(-50%); color:var(--muted); font-size:13px; pointer-events:none; }
+#zoomPctInput{
+  field-sizing: fixed;
+  width: calc(4ch + 60px); /* up to 4 digits (max 1000) + left padding + room for the % icon and reset button */
+  padding-right: 46px;
+  text-align:center;
+}
+/* the % sign shifts left in this one field (only) to leave room for the reset-to-100% button
+   to its right — the shared .pct-ico position (used by Quality too) stays untouched. */
+.zoom-pct-field .pct-ico{ right: 32px; }
+/* matches the thumb-row's close/remove badge (.thumb-del): circular, dark translucent
+   background, hover to red. */
+.zoom-reset-btn{
+  position:absolute; right:6px; top:50%; transform:translateY(-50%);
+  width:24px; height:24px; padding:0; border:none; background:rgba(0,0,0,.75);
+  border-radius:50%; display:flex; align-items:center; justify-content:center;
+  cursor:pointer;
+}
+.zoom-reset-btn img{ width:16px; height:16px; display:block; }
+.zoom-reset-btn:hover{ background:var(--bad-contrast); }
+
+/* right rail export rows */
+.exp-row2{ padding-bottom:0.5rem; }
+.exp-row2 + .exp-row2{ margin-top:8px; }
+.exp-row2-top{ display:flex; gap:8px; align-items:center; }
+.exp-row2-top select{ padding:8px; field-sizing:fixed; }
+/* fixed widths so every row's dropdowns line up, sized to the widest option in each.
+   Fixed px instead of ch: "ch" is based on the "0" glyph, which badly underestimates
+   wide proportional-font capitals like the "W" in "WEBP" — that's what clipped the "P".
+   flex-shrink:0 keeps that width from being squeezed by the flex row once the right
+   rail narrows (e.g. just above the 1000px workspace-grid breakpoint). */
+.fmt-select{ width: 88px; min-width: 88px; flex-shrink: 0; } /* "WEBP" */
+.scale-select{ width: 80px; min-width: 80px; flex-shrink: 0; } /* "0.75x", the longest scale option */
+.exp-row2-stats{ margin-top:12px; font-size:12px; color:var(--swapblue); display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.exp-row2-stats .size-compare{ display:flex; align-items:center; gap:4px; }
+.exp-row2-stats .diff{ font-weight:700; }
+.exp-row2-stats .diff.smaller{ color:var(--good); }
+.exp-row2-stats .diff.larger{ color:var(--bad); }
+
+.export-actions-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; position:relative; width:100%; }
+.export-actions-row #addRow{ flex:0 0 auto; }
+
+
+.tight-input {
+  field-sizing: content;
+  min-width: 50px;
+  max-width: 100%;
+  }
+
+
+@media (max-width: 576px) {
+  nav { align-items:center; gap: 16px; padding:8px; }
+  .logo { width: auto; height: 24px; }
+  h1 { font-size: 1.75em; }
+  h2 { font-size: 1.5em; }
+  li, p, small { font-size: 0.875em; }
+  .mobile-hide { display:none; }
+  .row-align-resp { flex-direction:column; align-items:center; gap:8px;  }
+  button { font-size: 0.9em; padding: 6px 12px; }
+  footer { padding: 16px 16px 32px 16px; }
+  .abs-center { padding:4px; }
+  .thumb-row { padding:4px;}
+  .thumb-row { flex-direction:column; align-items:center; gap:8px; height:auto; }
+  .viewer-controls-row { flex-direction:column; }
+  .thumb-count-cell { flex-direction:row; justify-content:space-between; gap:16px; min-width:0; margin-right:0; width:100%; }
+  .thumb-scroll-group { width:100%;height:auto; flex:1;}
+}
+
+@media (min-width: 671px) and (max-width: 1000px) {
+  .workspace { width:100%; min-width:0; max-width:625px; }
+}
+
+@media (max-width: 376px) { 
+  .logo { width: 100%; height:auto; } }
+
+
+</style>
+</head>
+<body>
+<!-- page drop overlay -->  
+<div class="page-drop-overlay" id="pageDropOverlay">
+  <div class="box">Drop images anywhere<span>Release to add them</span></div>
+</div>
+<!-- shared tooltip bubble for any .tooltip-icon — position:fixed + JS-computed coordinates,
+     same escape-the-clipping approach used for the Save-all menu, since .rail has overflow:hidden -->
+<div class="tooltip-bubble" id="tooltipBubble" role="tooltip"></div>
+<!-- clear all images modal -->  
+<div class="modal-overlay" id="clearModalOverlay">
+  <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="clearModalTitle" tabindex="-1">
+    <button type="button" class="modal-close-btn" id="clearModalXBtn" aria-label="Close"><img src="images/close-x.svg" alt=""/></button>
+    <h2 id="clearModalTitle">Clear all images?</h2><br>
+    <p>This will remove all <span id="clearCount">0</span> uploaded images along with their crop and export settings. This can't be undone.</p>
+    <label class="modal-checkbox">
+      <input type="checkbox" id="skipConfirmCheckbox">
+      Don't ask me again
+    </label>
+    <div class="modal-actions">
+      <button type="button" class="btn-secondary" id="modalCancelBtn">Cancel</button>
+      <button type="button" class="btn-primary" id="modalClearBtn">Clear all</button>
+    </div>
+  </div>
+</div>
+<!-- share modal -->
+<div class="modal-overlay" id="shareModalOverlay">
+  <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="shareModalTitle" tabindex="-1">
+    <button type="button" class="modal-close-btn" id="shareModalXBtn" aria-label="Close"><img src="images/close-x.svg" alt=""/></button>
+    <h2 id="shareModalTitle">Share Image Swapper</h2><br>
+    <p>Know someone who might like this? Share it with them!</p>
+    <div class="share-link-row">
+      <label for="shareLinkInput" class="sr-only">Shareable link</label>
+      <input type="text" class="text-input" id="shareLinkInput" readonly>
+      <button type="button" class="btn-primary" id="copyShareLinkBtn"><img src="images/copy.svg" alt=""/> <span id="copyShareLinkBtnLabel">Copy</span></button>
+    </div>
+    <div class="share-options-row">
+      <a class="share-option" id="shareEmailLink" href="#" title="Share via Email"><img src="images/email.svg" alt=""/></a>
+      <a class="share-option" id="shareTwitterLink" href="#" target="_blank" rel="noopener" title="Share on X"><img src="images/x-corp.svg" alt="X"/></a>
+      <a class="share-option" id="shareFacebookLink" href="#" target="_blank" rel="noopener" title="Share on Facebook"><img src="images/facebook.svg" alt=""/></a>
+      <a class="share-option" id="shareLinkedinLink" href="#" target="_blank" rel="noopener" title="Share on LinkedIn"><img src="images/linkedin.svg" alt=""/></a>
+      <a class="share-option" id="shareWhatsappLink" href="#" target="_blank" rel="noopener" title="Share on WhatsApp"><img src="images/whatsapp.svg" alt=""/></a>
+      <a class="share-option" id="shareRedditLink" href="#" target="_blank" rel="noopener" title="Share on Reddit"><img src="images/reddit.svg" alt=""/></a>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn-secondary" id="shareModalCloseBtn">Close</button>
+    </div>
+  </div>
+</div>
+<!-- terms of use modal -->
+<div class="modal-overlay" id="termsModalOverlay">
+  <div class="modal-panel wide" role="dialog" aria-modal="true" aria-labelledby="termsModalTitle" tabindex="-1">
+    <button type="button" class="modal-close-btn" id="termsModalXBtn" aria-label="Close"><img src="images/close-x.svg" alt=""/></button>
+    <h2 id="termsModalTitle">Terms of Use</h2>
+    <br>
+    <div class="modal-scroll">
+      <h3>Use at your own risk</h3>
+      <p>Image Swapper is provided "as is" and "as available," without warranties of any kind, express or implied. You use this tool entirely at your own risk. We do not guarantee that conversions, compression, cropping, resizing, or any other operation performed by this tool will produce results that meet your expectations or requirements.</p>
+      <h3>No responsibility for outcomes</h3>
+      <p>We are not responsible for any loss, damage, corruption, quality degradation, or other undesired outcome affecting your images or files that results from using this tool. This includes, without limitation, unexpected file sizes, visual artifacts, incorrect dimensions, or loss of image data. Always keep a backup copy of your original files before converting or editing them.</p>
+      <h3>How your images are handled</h3>
+      <p>Processing happens locally in your browser. Your images are not uploaded to any server by this tool as part of its core conversion features. That said, we make no guarantees about the security, availability, or performance of the browser environment in which this tool runs.</p>
+      <h3>No warranty, limitation of liability</h3>
+      <p>To the fullest extent permitted by law, we disclaim all warranties, and we will not be liable for any direct, indirect, incidental, special, or consequential damages arising out of or in connection with your use of, or inability to use, this tool.</p>
+      <h3>Changes</h3>
+      <p>These terms may be updated from time to time. Continued use of this tool after changes are posted constitutes acceptance of the revised terms.</p>
+      <p style="font-size:0.8em;">This is general informational text, not legal advice. If you plan to distribute or rely on this tool commercially, consider having these terms reviewed by a licensed attorney.</p>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn-primary" id="termsModalCloseBtn">Close</button>
+    </div>
+  </div>
+</div>
+<!-- Main Vert Flexbox -->
+<div class="flexall">
+<nav>
+  <div>
+    <img class="logo" src="images/logo.svg" alt="Image Swapper" />
+  </div>
+  <div>
+    <button class="btn-secondary mobile-hide" id="navUploadBtn" type="button"><img src="images/upload.svg" alt=""> Upload</button>
+    <button class="btn-secondary" id="navShareBtn" type="button"><img src="images/share.svg" alt=""> Share</button>
+  </div>
+</nav>
+<main class="abs-center">
+  <div class="wrap">
+    <div class="dropzone" id="dropzone">
+      <div class="dz-full">
+        <div class="dropzone-content">
+          <h1>FREE Image Converter & Optimizer</h1>
+          <div class="line"></div>
+          <div class="flexcol gap24">
+            <div class="flexcol gap16">
+              <h2>Upload images</h2>
+              <div class="flexcol gap8">
+                <p>Supports up to 20 images</p>
+                <p>JPG, PNG, WEBP, GIF, BMP supported.</p>
+              </div>
+              <div class="row-align-resp">
+                <button class="btn-secondary" type="button"><img src="images/upload.svg" alt=""> Upload</button>
+                <p>OR</p>
+                <p><strong>Drag & drop images here</strong></p>
+              </div>
+            </div>
+            <div class="flexcol gap8">
+              <h2>Quickly convert them</h2>
+              <ul>
+                <li>Resize or crop them</li>
+                <li>Compress them — smaller file sizes</li>
+                <li>Export as JPG, WEBP, or PNG</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+      <input type="file" id="fileInput" multiple accept="image/*">
+    </div>
+    <div class="workspace" id="workspace" style="display:none;">
+      <div class="thumb-row">
+        <div class="thumb-count-cell">
+          <div><span id="thumbCountCur">0</span> of <span id="thumbCountMax">20</span></div>
+          <button type="button" class="btn-secondary" id="clearBtn"><img src="images/delete.svg" alt=""/> Clear</button>
+        </div>
+        <div class="thumb-scroll-group">
+          <button type="button" class="scroll-btn" id="scrollLeftBtn" aria-label="Scroll thumbnails left"><span class="scroll-chevron left"></span></button>
+          <div class="thumb-scroll" id="thumbstrip"></div>
+          <button type="button" class="scroll-btn" id="scrollRightBtn" aria-label="Scroll thumbnails right"><span class="scroll-chevron right"></span></button>
+        </div>
+      </div>
+      <div class="workspace-grid">
+        <!-- CENTER PANE - IMAGE VIEWER -->
+        <div class="center-pane">
+          <div class="view-toggle-row" id="viewToggle">
+            <button type="button" class="view-btn" data-view="original">Original</button>
+            <button type="button" class="view-btn active" data-view="optimized">Optimized</button>
+            <button type="button" class="view-btn" data-view="compare">Compare</button>
+          </div>
+          <div class="checker" id="previewWrap">
+            <img id="origImg" style="display:none;" alt="">
+            <img id="optImg" style="display:none;" alt="">
+            <div class="compare-wrap" id="compareWrap">
+              <div class="compare-half compare-left" id="compareLeftHalf"><img id="compareOrigImg" alt=""></div>
+              <div class="compare-half compare-right" id="compareRightHalf"><img id="compareOptImg" alt=""></div>
+              <div class="compare-divider" id="compareDivider" aria-hidden="true"></div>
+              <div class="compare-handle" id="compareHandle" role="slider" tabindex="0" aria-label="Comparison split position" aria-orientation="horizontal" aria-valuemin="5" aria-valuemax="95" aria-valuenow="50"></div>
+              <span class="compare-label left-label">Original</span>
+              <span class="compare-label right-label">Optimized</span>
+            </div>
+            <span class="empty" id="previewEmpty">No image selected</span>
+            <span class="compare-label left-label" id="cropDimsLabel" style="display:none;"></span>
+            <div class="crop-overlay" id="cropOverlay" style="display:none;">
+              <div class="crop-box" id="cropBox" aria-label="Crop area">
+                <div class="crop-handle ch-nw" data-h="nw" role="button" tabindex="0" aria-label="Resize crop area from the top-left corner"></div>
+                <div class="crop-handle ch-n" data-h="n" role="slider" tabindex="0" aria-orientation="vertical" aria-label="Resize crop area from the top edge" aria-valuemin="5" aria-valuemax="100" aria-valuenow="100"></div>
+                <div class="crop-handle ch-ne" data-h="ne" role="button" tabindex="0" aria-label="Resize crop area from the top-right corner"></div>
+                <div class="crop-handle ch-e" data-h="e" role="slider" tabindex="0" aria-orientation="horizontal" aria-label="Resize crop area from the right edge" aria-valuemin="5" aria-valuemax="100" aria-valuenow="100"></div>
+                <div class="crop-handle ch-se" data-h="se" role="button" tabindex="0" aria-label="Resize crop area from the bottom-right corner"></div>
+                <div class="crop-handle ch-s" data-h="s" role="slider" tabindex="0" aria-orientation="vertical" aria-label="Resize crop area from the bottom edge" aria-valuemin="5" aria-valuemax="100" aria-valuenow="100"></div>
+                <div class="crop-handle ch-sw" data-h="sw" role="button" tabindex="0" aria-label="Resize crop area from the bottom-left corner"></div>
+                <div class="crop-handle ch-w" data-h="w" role="slider" tabindex="0" aria-orientation="horizontal" aria-label="Resize crop area from the left edge" aria-valuemin="5" aria-valuemax="100" aria-valuenow="100"></div>
+              </div>
+            </div>
+          </div>
+          <div class="viewer-controls-row">
+            <div class="row-align8">
+              <label for="fitModeSelect" class="sr-only">Fit mode</label>
+              <select id="fitModeSelect">
+                <option value="contain">Fit in window</option>
+                <option value="cover">Fill</option>
+                <option value="actual">Actual size</option>
+                <option value="width">100% width</option>
+                <option value="height">100% height</option>
+              </select>
+              <button type="button" class="btn-secondary" id="cropBtn"><img src="images/crop.svg" alt=""/> Crop</button>
+            </div>
+            <div class="row-align8">
+              <button type="button" class="icon-btn" id="zoomOutBtn" aria-label="Zoom out">
+                <img src="images/zoom-out.svg" alt=""/>
+              </button>
+              <button type="button" class="icon-btn" id="zoomInBtn" aria-label="Zoom in">
+                <img src="images/zoom-in.svg" alt=""/>
+              </button>
+              <div class="pct-field zoom-pct-field">
+                <label for="zoomPctInput" class="sr-only">Zoom percentage</label>
+                <input class="tight-input" type="number" inputmode="numeric" id="zoomPctInput" min="10" max="1000" step="10" value="100">
+                <span class="pct-ico">%</span>
+                <button type="button" class="zoom-reset-btn" id="zoomResetBtn" title="Reset to 100%" style="display:none;"><img src="images/close-x.svg" alt=""/></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RAIL STACK: Image Details above Export, at every breakpoint -->
+        <div class="rail-stack">
+          <!-- Image Details -->
+          <div class="rail left-rail" id="leftRail">
+            <div class="rail-head" id="leftRailHead">
+              <h2>Image Details</h2>
+              <button type="button" class="collapse-btn" id="leftCollapseBtn" aria-label="Toggle Image Details panel" aria-expanded="true">⌃</button>
+            </div>
+            <div class="rail-body" id="leftRailBody">
+              <div class="field-row">
+                <label for="filenameInput" class="sr-only">File name</label>
+                <input type="text" class="text-input filename-input" id="filenameInput" placeholder="FileName">
+                <img class="pencil-ico" src="images/edit.svg" alt="">
+              </div>
+              <div class="flexcol gap16">
+                <div class="row-space">
+                  <div class="flexcol gap16">
+                    <div class="row-align">
+                        <div style="width:44px;">
+                          <label for="widthInput">Width</label>
+                        </div>
+                        <input class="tight-input" type="number" inputmode="numeric" id="widthInput" min="1">
+                        <p>pixels</p>
+                    </div>
+                    <div class="row-align">
+                        <div style="width:44px;">
+                          <label for="heightInput">Height</label>
+                        </div>
+                        <input class="tight-input" type="number" inputmode="numeric" id="heightInput" min="1">
+                        <p>pixels</p>
+                    </div>
+                  </div>
+                  <div>
+                    <button type="button" class="btn-secondary" id="resetDimsBtn" style="display:none;">Reset</button>
+                  </div>
+                </div>  
+                <div class="row-space">
+                  <label class="checkbox-row">
+                    <input type="checkbox" id="aspectLockChk" checked>
+                    Lock aspect ratio
+                  </label>
+                </div>
+              </div>
+              <div class="row-align">
+                <label for="dpiSelect">Resolution</label>
+                <div class="resolution-row">
+                  <div class="field-with-unit">
+                    <select id="dpiSelect">
+                      <option value="72">72</option>
+                      <option value="96">96</option>
+                      <option value="150">150</option>
+                      <option value="300">300</option>
+                      <option value="600">600</option>
+                    </select>
+                    <p>dpi</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Export -->
+          <div class="rail right-rail" id="rightRail">
+            <div class="rail-head" id="rightRailHead">
+              <h2>Export</h2>
+              <button type="button" class="collapse-btn" id="rightCollapseBtn" aria-label="Toggle Export panel" aria-expanded="true">⌃</button>
+            </div>
+            <div class="rail-body" id="rightRailBody">
+              <div class="flexcol gap16">
+                <div class="row-space">
+                  <div class="row-align8">
+                    <p id="qualityLabel">Quality</p><img class="tooltip-icon" src="images/tooltip1.svg" alt="" tabindex="0" data-tooltip="Only affects JPG and WEBP. PNG is lossless." aria-label="Only affects JPG and WEBP. PNG is lossless." />
+                  </div>
+                  <div class="quality-status" id="qualityStatus">Very High</div>
+                </div>
+                <div class="quality-row">
+                  <input type="range" id="quality" min="1" max="100" step="1" value="85" aria-labelledby="qualityLabel">
+                  <div class="pct-field">
+                    <input type="number" inputmode="numeric" id="qualityNum" min="1" max="100" step="1" value="85" aria-labelledby="qualityLabel">
+                    <span class="pct-ico">%</span>
+                  </div>
+                </div>
+              </div>
+              <div id="rowsList"></div>
+              <div class="export-actions-row">
+                <button type="button" class="btn-secondary" id="addRow"><img src="images/plus.svg" alt=""/> Add</button>
+                <button type="button" class="btn-primary" id="saveAllBtn"><img src="images/download.svg" alt=""/> <span id="saveAllBtnLabel">Save all</span></button>
+              </div>
+              <div id="zipSection" class="row-space top-border">
+                <p>Download all <span id="zipImageCount">0</span> images with current export settings</p>
+                <button type="button" class="btn-secondary" id="downloadZipBtn"><img src="images/download-white.svg" alt=""/><span id="downloadZipBtnLabel">Download ZIP</span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <small>Image Swapper logo, image compression engine, and this site are property of Oxygen For Aliens LLC. ©2026 Oxygen For Aliens LLC. All rights reserved.</small>
+  <div class="row-align-resp">
+    <a id="termsLink">Terms of Use</a>
+    <a id="donateLink" href="https://www.paypal.com/donate/?business=9AVLVQTT9QKZA&no_recurring=0&item_name=No+fees%2C+no+waiting+%E2%80%94+just+fast+image+conversion.+Help+keep+Image+Swapper+free+for+everyone.&currency_code=USD" target="_blank" rel="noopener">Support Image Swapper</a>
+  </div>
+</footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+// ============================================================
+// DOM refs
+// ============================================================
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const workspace = document.getElementById('workspace');
+const thumbstrip = document.getElementById('thumbstrip');
+const thumbCountCur = document.getElementById('thumbCountCur');
+const scrollLeftBtn = document.getElementById('scrollLeftBtn');
+const scrollRightBtn = document.getElementById('scrollRightBtn');
+const clearBtn = document.getElementById('clearBtn');
+const navUploadBtn = document.getElementById('navUploadBtn');
+const navShareBtn = document.getElementById('navShareBtn');
+
+const clearModalOverlay = document.getElementById('clearModalOverlay');
+const clearCount = document.getElementById('clearCount');
+const skipConfirmCheckbox = document.getElementById('skipConfirmCheckbox');
+const modalCancelBtn = document.getElementById('modalCancelBtn');
+const modalClearBtn = document.getElementById('modalClearBtn');
+let skipClearConfirm = false;
+
+const shareModalOverlay = document.getElementById('shareModalOverlay');
+const shareLinkInput = document.getElementById('shareLinkInput');
+const copyShareLinkBtn = document.getElementById('copyShareLinkBtn');
+const copyShareLinkBtnLabel = document.getElementById('copyShareLinkBtnLabel');
+const shareModalCloseBtn = document.getElementById('shareModalCloseBtn');
+const shareModalXBtn = document.getElementById('shareModalXBtn');
+const shareEmailLink = document.getElementById('shareEmailLink');
+const shareTwitterLink = document.getElementById('shareTwitterLink');
+const shareFacebookLink = document.getElementById('shareFacebookLink');
+const shareLinkedinLink = document.getElementById('shareLinkedinLink');
+const shareWhatsappLink = document.getElementById('shareWhatsappLink');
+const shareRedditLink = document.getElementById('shareRedditLink');
+
+const termsModalOverlay = document.getElementById('termsModalOverlay');
+const termsModalCloseBtn = document.getElementById('termsModalCloseBtn');
+const termsModalXBtn = document.getElementById('termsModalXBtn');
+const termsLink = document.getElementById('termsLink');
+const donateLink = document.getElementById('donateLink');
+const clearModalXBtn = document.getElementById('clearModalXBtn');
+
+const leftRail = document.getElementById('leftRail');
+const leftRailHead = document.getElementById('leftRailHead');
+const leftCollapseBtn = document.getElementById('leftCollapseBtn');
+const rightRail = document.getElementById('rightRail');
+const rightRailHead = document.getElementById('rightRailHead');
+const rightCollapseBtn = document.getElementById('rightCollapseBtn');
+
+const filenameInput = document.getElementById('filenameInput');
+const widthInput = document.getElementById('widthInput');
+const heightInput = document.getElementById('heightInput');
+const aspectLockChk = document.getElementById('aspectLockChk');
+const dpiSelect = document.getElementById('dpiSelect');
+const resetDimsBtn = document.getElementById('resetDimsBtn');
+const cropBtn = document.getElementById('cropBtn');
+const qualityEl = document.getElementById('quality');
+const qualityNumEl = document.getElementById('qualityNum');
+const qualityStatus = document.getElementById('qualityStatus');
+
+const viewToggle = document.getElementById('viewToggle');
+const viewBtnOriginal = viewToggle.querySelector('[data-view="original"]');
+const viewBtnOptimized = viewToggle.querySelector('[data-view="optimized"]');
+const previewWrap = document.getElementById('previewWrap');
+const origImg = document.getElementById('origImg');
+const optImg = document.getElementById('optImg');
+const compareWrap = document.getElementById('compareWrap');
+const compareOrigImg = document.getElementById('compareOrigImg');
+const compareOptImg = document.getElementById('compareOptImg');
+const compareLeftHalf = document.getElementById('compareLeftHalf');
+const compareRightHalf = document.getElementById('compareRightHalf');
+const compareDivider = document.getElementById('compareDivider');
+const compareHandle = document.getElementById('compareHandle');
+const previewEmpty = document.getElementById('previewEmpty');
+const cropDimsLabel = document.getElementById('cropDimsLabel');
+const cropOverlay = document.getElementById('cropOverlay');
+const cropBox = document.getElementById('cropBox');
+const cropHandleN = cropBox.querySelector('.ch-n');
+const cropHandleS = cropBox.querySelector('.ch-s');
+const cropHandleE = cropBox.querySelector('.ch-e');
+const cropHandleW = cropBox.querySelector('.ch-w');
+const fitModeSelect = document.getElementById('fitModeSelect');
+const zoomOutBtn = document.getElementById('zoomOutBtn');
+const zoomInBtn = document.getElementById('zoomInBtn');
+const zoomPctInput = document.getElementById('zoomPctInput');
+const zoomResetBtn = document.getElementById('zoomResetBtn');
+
+const rowsList = document.getElementById('rowsList');
+const addRowBtn = document.getElementById('addRow');
+const saveAllBtn = document.getElementById('saveAllBtn');
+const saveAllBtnLabel = document.getElementById('saveAllBtnLabel');
+const tooltipBubble = document.getElementById('tooltipBubble');
+const downloadZipBtn = document.getElementById('downloadZipBtn');
+const downloadZipBtnLabel = document.getElementById('downloadZipBtnLabel');
+const zipSection = document.getElementById('zipSection');
+const zipImageCount = document.getElementById('zipImageCount');
+
+const EXT = { jpeg: 'jpg', png: 'png', webp: 'webp' };
+const MIME = { jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
+const FORMAT_LABEL = { jpeg: 'JPG', png: 'PNG', webp: 'WEBP' };
+const MAX_IMAGES = 20;
+
+// export "scale" is either a multiplier of the working size, or a fixed target width/height
+const SCALE_OPTIONS = [
+  { value: '0.5x', mode: 'multiplier', factor: 0.5 },
+  { value: '0.75x', mode: 'multiplier', factor: 0.75 },
+  { value: '1x', mode: 'multiplier', factor: 1 },
+  { value: '1.5x', mode: 'multiplier', factor: 1.5 },
+  { value: '2x', mode: 'multiplier', factor: 2 },
+  { value: '3x', mode: 'multiplier', factor: 3 },
+  { value: '4x', mode: 'multiplier', factor: 4 },
+  { value: '512w', mode: 'width', target: 512 },
+  { value: '512h', mode: 'height', target: 512 },
+];
+function computeRowDims(item, row) {
+  const opt = SCALE_OPTIONS.find(o => o.value === row.scale);
+  if (!opt) return { w: item.workingW, h: item.workingH };
+  if (opt.mode === 'multiplier') {
+    return { w: Math.max(1, Math.round(item.workingW * opt.factor)), h: Math.max(1, Math.round(item.workingH * opt.factor)) };
+  }
+  if (opt.mode === 'width') {
+    const w = opt.target;
+    const h = Math.max(1, Math.round(item.workingH * (w / item.workingW)));
+    return { w, h };
+  }
+  if (opt.mode === 'height') {
+    const h = opt.target;
+    const w = Math.max(1, Math.round(item.workingW * (h / item.workingH)));
+    return { w, h };
+  }
+  return { w: item.workingW, h: item.workingH };
+}
+function scaleSuffix(scaleValue) {
+  return scaleValue === '1x' ? '' : `@${scaleValue}`;
+}
+
+// ============================================================
+// state
+// ============================================================
+let items = [];            // per-image state, see makeItem()
+let rows = [];              // shared export style recipe: {id, format, scale}
+let rowCounter = 0;
+let selectedItemId = null;
+let viewMode = 'optimized'; // 'original' | 'optimized' | 'compare'
+// hand-tool panning (Original/Optimized views only) — lets you drag or swipe a zoomed-in
+// image around inside the preview window when it's larger than the window itself.
+let panX = 0, panY = 0;
+let panBounds = { maxX: 0, maxY: 0 };
+let isPanning = false;
+let panDragStart = { x: 0, y: 0, panX: 0, panY: 0 };
+function resetPan() { panX = 0; panY = 0; }
+let fitMode = 'contain';
+let zoomPct = 100;
+let debounceTimer = null;
+
+function debounce(fn, ms) {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(fn, ms);
+}
+function baseName(name) { return name.replace(/\.[^.]+$/, ''); }
+function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
+function getSelectedItem() { return items.find(i => i.id === selectedItemId); }
+function fmtBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / (1024 * 1024)).toFixed(2) + ' MB';
+}
+function qualityLabel(pct) {
+  if (pct >= 100) return 'Excellent';
+  if (pct >= 81) return 'Very High';
+  if (pct >= 61) return 'High';
+  if (pct >= 41) return 'Medium';
+  if (pct >= 21) return 'Low';
+  return 'Very Low';
+}
+function getCropPixelRect(item) {
+  const c = item.crop || { x: 0, y: 0, w: 1, h: 1 };
+  return {
+    sx: Math.round(c.x * item.iw),
+    sy: Math.round(c.y * item.ih),
+    sw: Math.max(1, Math.round(c.w * item.iw)),
+    sh: Math.max(1, Math.round(c.h * item.ih))
+  };
+}
+function effectiveCropRect(item) {
+  if (!item.cropEnabled) return { sx: 0, sy: 0, sw: item.iw, sh: item.ih };
+  return getCropPixelRect(item);
+}
+
+function makeItem(file) {
+  const id = Math.random().toString(36).slice(2);
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.src = url;
+  return {
+    id, file, img, url, iw: 0, ih: 0,
+    filename: baseName(file.name),
+    workingW: 0, workingH: 0,
+    aspectLocked: true,
+    dpi: 72,
+    quality: 85,
+    crop: { x: 0, y: 0, w: 1, h: 1 },
+    cropEnabled: false
+  };
+}
+
+// ============================================================
+// collapsible rails
+// ============================================================
+// Image Details and Export are a strict two-state accordion, at every size: exactly one of
+// the two is open at all times, never both open and never both collapsed. Clicking the
+// collapsed rail's header opens it and collapses the other; clicking the already-open rail's
+// header collapses it and opens the other.
+function syncCollapseAria() {
+  leftCollapseBtn.setAttribute('aria-expanded', String(!leftRail.classList.contains('collapsed')));
+  rightCollapseBtn.setAttribute('aria-expanded', String(!rightRail.classList.contains('collapsed')));
+}
+leftRailHead.addEventListener('click', () => {
+  const wasOpen = !leftRail.classList.contains('collapsed');
+  leftRail.classList.toggle('collapsed', wasOpen);
+  rightRail.classList.toggle('collapsed', !wasOpen);
+  syncCollapseAria();
+});
+rightRailHead.addEventListener('click', () => {
+  const wasOpen = !rightRail.classList.contains('collapsed');
+  rightRail.classList.toggle('collapsed', wasOpen);
+  leftRail.classList.toggle('collapsed', !wasOpen);
+  syncCollapseAria();
+});
+// default state at every size: Image Details closed, Export open.
+leftRail.classList.add('collapsed');
+syncCollapseAria();
+
+// ============================================================
+// nav upload button doubles as "add more images"
+// ============================================================
+navUploadBtn.addEventListener('click', () => fileInput.click());
+
+// ============================================================
+// file intake
+// ============================================================
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  e.stopPropagation();
+  dropzone.classList.remove('drag');
+  dragDepth = 0;
+  pageDropOverlay.classList.remove('active');
+  addFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', () => { addFiles(fileInput.files); fileInput.value = ''; });
+
+const pageDropOverlay = document.getElementById('pageDropOverlay');
+let dragDepth = 0;
+function hasFiles(e) { return e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files'); }
+window.addEventListener('dragenter', e => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; pageDropOverlay.classList.add('active'); });
+window.addEventListener('dragover', e => { if (!hasFiles(e)) return; e.preventDefault(); });
+window.addEventListener('dragleave', e => { if (!hasFiles(e)) return; dragDepth = Math.max(0, dragDepth - 1); if (dragDepth === 0) pageDropOverlay.classList.remove('active'); });
+window.addEventListener('drop', e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  dragDepth = 0;
+  pageDropOverlay.classList.remove('active');
+  addFiles(e.dataTransfer.files);
+});
+
+function addFiles(fileList) {
+  let files = Array.from(fileList).filter(f => f.type.startsWith('image/'));
+  if (!files.length) return;
+
+  const room = MAX_IMAGES - items.length;
+  if (room <= 0) {
+    alert(`You've reached the ${MAX_IMAGES}-image limit. Remove some images before adding more.`);
+    return;
+  }
+  if (files.length > room) {
+    alert(`Only adding ${room} of ${files.length} images — ${MAX_IMAGES}-image limit reached.`);
+    files = files.slice(0, room);
+  }
+
+  files.forEach(file => {
+    const item = makeItem(file);
+    item.img.onload = () => {
+      item.iw = item.img.naturalWidth;
+      item.ih = item.img.naturalHeight;
+      item.workingW = item.iw;
+      item.workingH = item.ih;
+      renderThumbstrip();
+      if (selectedItemId === item.id) { loadItemIntoLeftRail(item); refreshAll(); }
+    };
+    items.push(item);
+    if (!selectedItemId) selectedItemId = item.id;
+  });
+
+  workspace.style.display = 'block';
+  dropzone.style.display = 'none';
+  renderThumbstrip();
+  updateButtons();
+  if (getSelectedItem()) loadItemIntoLeftRail(getSelectedItem());
+}
+
+function renderThumbstrip() {
+  thumbCountCur.textContent = items.length;
+  thumbstrip.innerHTML = '';
+  items.forEach((it, idx) => {
+    const d = document.createElement('div');
+    d.className = 'thumb' + (it.id === selectedItemId ? ' active' : '');
+    d.innerHTML = `<img src="${it.url}"><span class="thumb-num">${idx + 1}</span><button type="button" class="thumb-del" title="Remove image">✕</button>`;
+    d.title = it.file.name;
+    d.querySelector('img').alt = it.file.name;
+    d.querySelector('.thumb-del').setAttribute('aria-label', `Remove ${it.file.name}`);
+    d.addEventListener('click', () => selectItem(it.id));
+    d.querySelector('.thumb-del').addEventListener('click', e => { e.stopPropagation(); removeItem(it.id); });
+    thumbstrip.appendChild(d);
+  });
+  requestAnimationFrame(updateScrollButtons);
+  updateSaveAllLabel();
+  updateZipSectionVisibility();
+}
+
+function updateScrollButtons() {
+  // hidden entirely until there are enough thumbnails to actually need scrolling —
+  // once they're needed, each one still disables itself at whichever end it's stuck at
+  const hasOverflow = thumbstrip.scrollWidth > thumbstrip.clientWidth + 1;
+  scrollLeftBtn.style.display = hasOverflow ? '' : 'none';
+  scrollRightBtn.style.display = hasOverflow ? '' : 'none';
+  scrollLeftBtn.disabled = thumbstrip.scrollLeft <= 0;
+  scrollRightBtn.disabled = thumbstrip.scrollLeft + thumbstrip.clientWidth >= thumbstrip.scrollWidth - 1;
+}
+thumbstrip.addEventListener('scroll', updateScrollButtons);
+// dedicated timer (not the shared debounce() above) — debounce() has one global timer, so
+// sharing it with another resize listener (see layoutCropBox below) would let each cancel
+// the other's pending call every time the window resizes.
+let scrollBtnResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(scrollBtnResizeTimer);
+  scrollBtnResizeTimer = setTimeout(updateScrollButtons, 100);
+});
+scrollLeftBtn.addEventListener('click', () => thumbstrip.scrollBy({ left: -220, behavior: 'smooth' }));
+scrollRightBtn.addEventListener('click', () => thumbstrip.scrollBy({ left: 220, behavior: 'smooth' }));
+
+function selectItem(id) {
+  selectedItemId = id;
+  resetPan();
+  renderThumbstrip();
+  const item = getSelectedItem();
+  if (item) loadItemIntoLeftRail(item);
+  refreshAll();
+}
+
+function removeItem(id) {
+  const idx = items.findIndex(i => i.id === id);
+  if (idx === -1) return;
+  URL.revokeObjectURL(items[idx].url);
+  items.splice(idx, 1);
+
+  if (selectedItemId === id) {
+    const next = items[idx] || items[idx - 1] || null;
+    selectedItemId = next ? next.id : null;
+  }
+  if (items.length === 0) {
+    workspace.style.display = 'none';
+    dropzone.style.display = 'block';
+  }
+  renderThumbstrip();
+  if (getSelectedItem()) loadItemIntoLeftRail(getSelectedItem());
+  refreshAll();
+  updateButtons();
+}
+
+function updateButtons() {
+  const has = items.length > 0;
+  clearBtn.disabled = !has;
+}
+
+// "Save all" only really means "all" once there's more than one image or more than one
+// export style queued up — with just one of each, it's downloading a single file.
+function updateSaveAllLabel() {
+  saveAllBtnLabel.textContent = (items.length === 1 && rows.length === 1) ? 'Save' : 'Save all';
+}
+
+// Download ZIP only makes sense once there's more than one image to bundle — with a
+// single image, "Save all"/the per-row download buttons already cover it.
+function updateZipSectionVisibility() {
+  zipSection.style.display = items.length > 1 ? 'flex' : 'none';
+  zipImageCount.textContent = items.length;
+}
+
+// ============================================================
+// modal accessibility: focus trap + open/close focus management,
+// shared by the clear/share/terms modals
+// ============================================================
+function getFocusableEls(container) {
+  return Array.from(container.querySelectorAll(
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )).filter(el => el.offsetParent !== null);
+}
+let activeModalPanel = null;
+let modalReturnFocusEl = null;
+function openModal(overlay) {
+  modalReturnFocusEl = document.activeElement;
+  overlay.classList.add('active');
+  const panel = overlay.querySelector('.modal-panel');
+  activeModalPanel = panel;
+  const focusables = getFocusableEls(panel);
+  (focusables[0] || panel).focus();
+}
+function closeModal(overlay) {
+  overlay.classList.remove('active');
+  if (overlay.querySelector('.modal-panel') === activeModalPanel) activeModalPanel = null;
+  if (modalReturnFocusEl) { modalReturnFocusEl.focus(); modalReturnFocusEl = null; }
+}
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Tab' || !activeModalPanel) return;
+  const focusables = getFocusableEls(activeModalPanel);
+  if (!focusables.length) { e.preventDefault(); return; }
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault(); last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault(); first.focus();
+  }
+});
+
+function performClearAll() {
+  items.forEach(it => URL.revokeObjectURL(it.url));
+  items = [];
+  selectedItemId = null;
+  workspace.style.display = 'none';
+  dropzone.style.display = 'block';
+  renderThumbstrip();
+  updateButtons();
+}
+function closeClearModal() { closeModal(clearModalOverlay); }
+clearBtn.addEventListener('click', () => {
+  if (items.length === 0) return;
+  if (skipClearConfirm) { performClearAll(); return; }
+  clearCount.textContent = items.length;
+  skipConfirmCheckbox.checked = false;
+  openModal(clearModalOverlay);
+});
+modalCancelBtn.addEventListener('click', closeClearModal);
+clearModalXBtn.addEventListener('click', closeClearModal);
+modalClearBtn.addEventListener('click', () => {
+  if (skipConfirmCheckbox.checked) skipClearConfirm = true;
+  closeClearModal();
+  performClearAll();
+});
+clearModalOverlay.addEventListener('click', e => { if (e.target === clearModalOverlay) closeClearModal(); });
+
+// ============================================================
+// share modal — copy link, email, social outlets
+// ============================================================
+function openShareModal() {
+  const url = window.location.href;
+  const title = document.title || 'Image Swapper';
+  shareLinkInput.value = url;
+  shareEmailLink.href = `mailto:?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(url)}`;
+  shareTwitterLink.href = `https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(title)}`;
+  shareFacebookLink.href = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`;
+  shareLinkedinLink.href = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`;
+  shareWhatsappLink.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(title + ' ' + url)}`;
+  shareRedditLink.href = `https://www.reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}`;
+  openModal(shareModalOverlay);
+}
+function closeShareModal() { closeModal(shareModalOverlay); }
+navShareBtn.addEventListener('click', openShareModal);
+shareModalCloseBtn.addEventListener('click', closeShareModal);
+shareModalXBtn.addEventListener('click', closeShareModal);
+shareModalOverlay.addEventListener('click', e => { if (e.target === shareModalOverlay) closeShareModal(); });
+copyShareLinkBtn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(shareLinkInput.value);
+  } catch (e) {
+    shareLinkInput.select();
+    document.execCommand('copy');
+  }
+  const original = copyShareLinkBtnLabel.textContent;
+  copyShareLinkBtnLabel.textContent = 'Copied!';
+  setTimeout(() => { copyShareLinkBtnLabel.textContent = original; }, 1500);
+});
+
+// ============================================================
+// terms of use modal
+// ============================================================
+function openTermsModal() { openModal(termsModalOverlay); }
+function closeTermsModal() { closeModal(termsModalOverlay); }
+termsLink.addEventListener('click', e => { e.preventDefault(); openTermsModal(); });
+// placeholder until a real donation link is provided — swap the href once you have one
+donateLink.addEventListener('click', e => { if (donateLink.getAttribute('href') === '#') e.preventDefault(); });
+termsModalCloseBtn.addEventListener('click', closeTermsModal);
+termsModalXBtn.addEventListener('click', closeTermsModal);
+termsModalOverlay.addEventListener('click', e => { if (e.target === termsModalOverlay) closeTermsModal(); });
+
+window.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (clearModalOverlay.classList.contains('active')) closeClearModal();
+  if (shareModalOverlay.classList.contains('active')) closeShareModal();
+  if (termsModalOverlay.classList.contains('active')) closeTermsModal();
+});
+
+// ============================================================
+// left rail: per-image details
+// ============================================================
+function loadItemIntoLeftRail(item) {
+  filenameInput.value = item.filename;
+  widthInput.value = item.workingW || '';
+  heightInput.value = item.workingH || '';
+  aspectLockChk.checked = item.aspectLocked;
+  dpiSelect.value = String(item.dpi);
+  qualityEl.value = item.quality;
+  qualityNumEl.value = item.quality;
+  qualityStatus.textContent = qualityLabel(item.quality);
+  cropBtn.classList.toggle('active', item.cropEnabled);
+  setCropLock(item.cropEnabled);
+  updateResetDimsBtnVisibility();
+}
+
+// Reset only means something once Width/Height have actually diverged from the image's
+// original dimensions — otherwise there's nothing to reset back to.
+function updateResetDimsBtnVisibility() {
+  const item = getSelectedItem();
+  const changed = item && item.iw && (item.workingW !== item.iw || item.workingH !== item.ih);
+  resetDimsBtn.style.display = changed ? '' : 'none';
+}
+
+// while cropping, the view is locked to Fit in window at 100% zoom — panning/zooming around
+// would make the crop box's relationship to the actual image confusing to reason about.
+// The Original/Optimized view labels also switch to Crop/Cropped to match.
+function setCropLock(active) {
+  fitModeSelect.disabled = active;
+  zoomInBtn.disabled = active;
+  zoomOutBtn.disabled = active;
+  zoomPctInput.disabled = active;
+  viewBtnOriginal.textContent = active ? 'Crop' : 'Original';
+  viewBtnOptimized.textContent = active ? 'Cropped' : 'Optimized';
+}
+
+filenameInput.addEventListener('input', () => {
+  const item = getSelectedItem(); if (!item) return;
+  item.filename = filenameInput.value.trim() || 'image';
+});
+
+widthInput.addEventListener('input', () => {
+  const item = getSelectedItem(); if (!item || !item.iw) return;
+  if (item.cropEnabled) { applyCropWidthInput(item); return; }
+  const w = Math.max(1, parseInt(widthInput.value, 10) || item.workingW);
+  item.workingW = w;
+  if (item.aspectLocked) {
+    item.workingH = Math.max(1, Math.round(w * (item.ih / item.iw)));
+    heightInput.value = item.workingH;
+  }
+  updateResetDimsBtnVisibility();
+  debounce(refreshAll, 150);
+});
+// layoutCropBox() deliberately leaves whichever field currently has focus alone (see its
+// comment) so it never fights an in-progress edit — including an emptied field mid-delete.
+// That means once the user's done, something has to force the final sync; do it on blur.
+widthInput.addEventListener('blur', () => {
+  const item = getSelectedItem();
+  if (item && item.cropEnabled) layoutCropBox();
+});
+heightInput.addEventListener('input', () => {
+  const item = getSelectedItem(); if (!item || !item.ih) return;
+  if (item.cropEnabled) { applyCropHeightInput(item); return; }
+  const h = Math.max(1, parseInt(heightInput.value, 10) || item.workingH);
+  item.workingH = h;
+  if (item.aspectLocked) {
+    item.workingW = Math.max(1, Math.round(h * (item.iw / item.ih)));
+    widthInput.value = item.workingW;
+  }
+  updateResetDimsBtnVisibility();
+  debounce(refreshAll, 150);
+});
+heightInput.addEventListener('blur', () => {
+  const item = getSelectedItem();
+  if (item && item.cropEnabled) layoutCropBox();
+});
+aspectLockChk.addEventListener('change', () => {
+  const item = getSelectedItem(); if (!item) return;
+  item.aspectLocked = aspectLockChk.checked;
+});
+dpiSelect.addEventListener('change', () => {
+  const item = getSelectedItem(); if (!item) return;
+  item.dpi = parseInt(dpiSelect.value, 10);
+  debounce(refreshAll, 100);
+});
+resetDimsBtn.addEventListener('click', () => {
+  const item = getSelectedItem(); if (!item || !item.iw) return;
+  item.workingW = item.iw;
+  item.workingH = item.ih;
+  item.dpi = 72;
+  widthInput.value = item.workingW;
+  heightInput.value = item.workingH;
+  dpiSelect.value = '72';
+  updateResetDimsBtnVisibility();
+  refreshAll();
+});
+
+cropBtn.addEventListener('click', () => {
+  const item = getSelectedItem(); if (!item) return;
+  item.cropEnabled = !item.cropEnabled;
+  resetPan();
+  cropBtn.classList.toggle('active', item.cropEnabled);
+  setCropLock(item.cropEnabled);
+  if (item.cropEnabled) {
+    fitMode = 'contain';
+    fitModeSelect.value = 'contain';
+    zoomPct = 100;
+    zoomPctInput.value = 100;
+  } else {
+    // layoutCropBox() only drives Width/Height while cropEnabled, so leaving crop mode
+    // needs its own explicit hand-back to the normal working dimensions.
+    widthInput.value = item.workingW;
+    heightInput.value = item.workingH;
+  }
+  if (item.cropEnabled && viewMode !== 'original') setViewMode('original');
+  else refreshAll();
+});
+
+function getQuality() {
+  const item = getSelectedItem();
+  return (item ? item.quality : 85) / 100;
+}
+function clampPct(n) { return Math.min(100, Math.max(1, Math.round(n))); }
+qualityEl.addEventListener('input', () => {
+  const item = getSelectedItem(); if (!item) return;
+  item.quality = parseInt(qualityEl.value, 10);
+  qualityNumEl.value = item.quality;
+  qualityStatus.textContent = qualityLabel(item.quality);
+  debounce(refreshAll, 120);
+});
+qualityNumEl.addEventListener('input', () => {
+  const item = getSelectedItem(); if (!item) return;
+  const n = clampPct(parseFloat(qualityNumEl.value) || 1);
+  item.quality = n;
+  qualityEl.value = n;
+  qualityStatus.textContent = qualityLabel(n);
+  debounce(refreshAll, 150);
+});
+qualityNumEl.addEventListener('blur', () => {
+  const item = getSelectedItem(); if (!item) return;
+  const n = clampPct(parseFloat(qualityNumEl.value) || 1);
+  item.quality = n;
+  qualityNumEl.value = n; qualityEl.value = n;
+  qualityStatus.textContent = qualityLabel(n);
+  refreshAll();
+});
+
+// ============================================================
+// crop tool (drag box + handles — only interactive in Original view)
+// ============================================================
+function getImgRectRelativeToWrap() {
+  const wrapRect = previewWrap.getBoundingClientRect();
+  const imgRect = origImg.getBoundingClientRect();
+  return { left: imgRect.left - wrapRect.left, top: imgRect.top - wrapRect.top, width: imgRect.width, height: imgRect.height };
+}
+function layoutCropBox() {
+  const item = getSelectedItem();
+  if (!item || !item.cropEnabled || viewMode !== 'original' || !item.iw) {
+    cropOverlay.style.display = 'none';
+    cropDimsLabel.style.display = 'none';
+    return;
+  }
+  cropOverlay.style.display = 'block';
+  const r = getImgRectRelativeToWrap();
+  const c = item.crop;
+  cropBox.style.left = (r.left + c.x * r.width) + 'px';
+  cropBox.style.top = (r.top + c.y * r.height) + 'px';
+  cropBox.style.width = Math.max(0, c.w * r.width) + 'px';
+  cropBox.style.height = Math.max(0, c.h * r.height) + 'px';
+  cropHandleN.setAttribute('aria-valuenow', Math.round(c.h * 100));
+  cropHandleS.setAttribute('aria-valuenow', Math.round(c.h * 100));
+  cropHandleE.setAttribute('aria-valuenow', Math.round(c.w * 100));
+  cropHandleW.setAttribute('aria-valuenow', Math.round(c.w * 100));
+
+  const cropPx = getCropPixelRect(item);
+  cropDimsLabel.textContent = `${cropPx.sw} x ${cropPx.sh} pixels`;
+  cropDimsLabel.style.display = 'block';
+  // Width/Height in Image Details double as the crop box's live dimensions while cropping —
+  // this is the single place that runs after every crop change (drag, handle resize,
+  // keyboard nudge, or typing into these fields themselves), so it's the one spot that
+  // needs to keep them in sync. Never overwrite whichever of the two currently has focus,
+  // though — that's the field the user is mid-keystroke on (including during the 150ms
+  // debounce window below a pause), and clobbering it would fight what they're typing,
+  // including snapping an emptied field back to a value the instant they try to clear it.
+  if (document.activeElement !== widthInput) widthInput.value = cropPx.sw;
+  if (document.activeElement !== heightInput) heightInput.value = cropPx.sh;
+}
+const CROP_MIN = 0.05;
+// shared by pointer-drag and keyboard nudging: applies a (dx,dy) delta (in fractional
+// image units) to a crop rect for a given handle ('nw'/'n'/'ne'/'e'/'se'/'s'/'sw'/'w'),
+// or moves the whole rect when handle is null. Same math either way.
+function computeCropDelta(start, handle, dx, dy) {
+  let { x, y, w, h } = start;
+  if (!handle) {
+    x = clamp(start.x + dx, 0, 1 - start.w);
+    y = clamp(start.y + dy, 0, 1 - start.h);
+  } else {
+    if (handle.includes('e')) w = clamp(start.w + dx, CROP_MIN, 1 - start.x);
+    if (handle.includes('s')) h = clamp(start.h + dy, CROP_MIN, 1 - start.y);
+    if (handle.includes('w')) { const nx = clamp(start.x + dx, 0, start.x + start.w - CROP_MIN); w = start.w + (start.x - nx); x = nx; }
+    if (handle.includes('n')) { const ny = clamp(start.y + dy, 0, start.y + start.h - CROP_MIN); h = start.h + (start.y - ny); y = ny; }
+  }
+  return { x, y, w, h };
+}
+// Width/Height in Image Details double as crop-box controls while cropping: typing a new
+// value resizes the crop rect itself, anchored at its current top-left corner (x/y stay
+// fixed, w/h extend right/down). When Lock aspect ratio is checked, this preserves the crop
+// box's OWN current ratio — not the original image's ratio, since the box can already be any
+// custom shape the user dragged it into.
+// These fields use their own, much smaller floor than handle-dragging's CROP_MIN (5% of the
+// image) — typing an exact number is a deliberate action, not an accidental drag, so there's
+// no need to protect against the box vanishing the way there is with a pointer.
+const CROP_FIELD_MIN_PX = 1;
+function applyCropWidthInput(item) {
+  const cropPx = getCropPixelRect(item);
+  const wPx = Math.max(1, parseInt(widthInput.value, 10) || cropPx.sw);
+  const w = clamp(wPx / item.iw, CROP_FIELD_MIN_PX / item.iw, 1 - item.crop.x);
+  let h = item.crop.h;
+  if (item.aspectLocked) {
+    const ratio = cropPx.sh / cropPx.sw;
+    const hPx = Math.max(1, Math.round(w * item.iw * ratio));
+    h = clamp(hPx / item.ih, CROP_FIELD_MIN_PX / item.ih, 1 - item.crop.y);
+  }
+  item.crop = { ...item.crop, w, h };
+  layoutCropBox();
+  debounce(refreshAll, 150);
+}
+function applyCropHeightInput(item) {
+  const cropPx = getCropPixelRect(item);
+  const hPx = Math.max(1, parseInt(heightInput.value, 10) || cropPx.sh);
+  const h = clamp(hPx / item.ih, CROP_FIELD_MIN_PX / item.ih, 1 - item.crop.y);
+  let w = item.crop.w;
+  if (item.aspectLocked) {
+    const ratio = cropPx.sw / cropPx.sh;
+    const wPx = Math.max(1, Math.round(h * item.ih * ratio));
+    w = clamp(wPx / item.iw, CROP_FIELD_MIN_PX / item.iw, 1 - item.crop.x);
+  }
+  item.crop = { ...item.crop, w, h };
+  layoutCropBox();
+  debounce(refreshAll, 150);
+}
+function startCropDrag(e, handle) {
+  e.preventDefault(); e.stopPropagation();
+  const item = getSelectedItem();
+  if (!item || !item.iw) return;
+  const r = getImgRectRelativeToWrap();
+  const startX = e.clientX, startY = e.clientY;
+  const start = { ...item.crop };
+  function onMove(ev) {
+    const dx = (ev.clientX - startX) / r.width;
+    const dy = (ev.clientY - startY) / r.height;
+    item.crop = computeCropDelta(start, handle, dx, dy);
+    layoutCropBox();
+  }
+  function onUp() {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    debounce(refreshAll, 50);
+  }
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+}
+cropBox.addEventListener('pointerdown', e => { if (e.target.classList.contains('crop-handle')) return; startCropDrag(e, null); });
+cropBox.querySelectorAll('.crop-handle').forEach(h => h.addEventListener('pointerdown', e => startCropDrag(e, h.dataset.h)));
+// dedicated timer, same reasoning as scrollBtnResizeTimer above.
+let cropBoxResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(cropBoxResizeTimer);
+  cropBoxResizeTimer = setTimeout(layoutCropBox, 100);
+});
+
+// keyboard resize: arrow keys nudge the focused handle by CROP_STEP (fractional image
+// units); hold Shift for a bigger CROP_BIG_STEP jump. Mirrors computeCropDelta exactly,
+// so keyboard and pointer dragging always agree — note this does NOT apply aspect-lock:
+// the existing pointer-drag resize doesn't respect it either (aspect-lock only governs
+// the Width/Height number fields), so keyboard stays consistent with that behavior.
+const CROP_STEP = 0.02, CROP_BIG_STEP = 0.1;
+function nudgeCrop(handle, dx, dy) {
+  const item = getSelectedItem();
+  if (!item || !item.iw) return;
+  item.crop = computeCropDelta(item.crop, handle, dx, dy);
+  layoutCropBox();
+  debounce(refreshAll, 50);
+}
+cropBox.querySelectorAll('.crop-handle').forEach(h => h.addEventListener('keydown', e => {
+  const step = e.shiftKey ? CROP_BIG_STEP : CROP_STEP;
+  let dx = 0, dy = 0;
+  switch (e.key) {
+    case 'ArrowLeft': dx = -step; break;
+    case 'ArrowRight': dx = step; break;
+    case 'ArrowUp': dy = -step; break;
+    case 'ArrowDown': dy = step; break;
+    default: return;
+  }
+  e.preventDefault();
+  nudgeCrop(h.dataset.h, dx, dy);
+}));
+
+// ============================================================
+// compare split (draggable before/after divider)
+// ============================================================
+let comparePct = 50;
+const COMPARE_MIN = 5, COMPARE_MAX = 95;
+function applyCompareSplit() {
+  compareLeftHalf.style.clipPath = `inset(0 ${100 - comparePct}% 0 0)`;
+  compareRightHalf.style.clipPath = `inset(0 0 0 ${comparePct}%)`;
+  compareDivider.style.left = comparePct + '%';
+  compareHandle.style.left = comparePct + '%';
+  compareHandle.setAttribute('aria-valuenow', Math.round(comparePct));
+}
+function setComparePct(pct) {
+  comparePct = clamp(pct, COMPARE_MIN, COMPARE_MAX);
+  applyCompareSplit();
+}
+function startCompareDrag(e) {
+  e.preventDefault();
+  function onMove(ev) {
+    const rect = previewWrap.getBoundingClientRect();
+    const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+    setComparePct(pct);
+  }
+  function onUp() {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+  }
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+}
+compareHandle.addEventListener('pointerdown', startCompareDrag);
+compareHandle.addEventListener('keydown', e => {
+  const STEP = 1, BIG_STEP = 10;
+  switch (e.key) {
+    case 'ArrowLeft':
+    case 'ArrowDown':
+      e.preventDefault(); setComparePct(comparePct - STEP); break;
+    case 'ArrowRight':
+    case 'ArrowUp':
+      e.preventDefault(); setComparePct(comparePct + STEP); break;
+    case 'PageDown':
+      e.preventDefault(); setComparePct(comparePct - BIG_STEP); break;
+    case 'PageUp':
+      e.preventDefault(); setComparePct(comparePct + BIG_STEP); break;
+    case 'Home':
+      e.preventDefault(); setComparePct(COMPARE_MIN); break;
+    case 'End':
+      e.preventDefault(); setComparePct(COMPARE_MAX); break;
+  }
+});
+applyCompareSplit();
+
+// ============================================================
+// view toggle (Original / Optimized / Compare) + fit/zoom
+// ============================================================
+function setViewMode(mode) {
+  viewMode = mode;
+  resetPan();
+  viewToggle.querySelectorAll('.view-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === mode));
+  refreshAll();
+}
+viewToggle.querySelectorAll('.view-btn').forEach(btn => btn.addEventListener('click', () => setViewMode(btn.dataset.view)));
+
+function applyFitAndZoom(imgEl) {
+  const scale = zoomPct / 100;
+  imgEl.style.transformOrigin = 'center center';
+  if (fitMode === 'contain') { imgEl.style.width = 'auto'; imgEl.style.height = 'auto'; imgEl.style.maxWidth = '100%'; imgEl.style.maxHeight = '100%'; imgEl.style.objectFit = ''; }
+  else if (fitMode === 'cover') { imgEl.style.width = '100%'; imgEl.style.height = '100%'; imgEl.style.maxWidth = 'none'; imgEl.style.maxHeight = 'none'; imgEl.style.objectFit = 'cover'; }
+  else if (fitMode === 'actual') { imgEl.style.width = 'auto'; imgEl.style.height = 'auto'; imgEl.style.maxWidth = 'none'; imgEl.style.maxHeight = 'none'; imgEl.style.objectFit = ''; }
+  else if (fitMode === 'width') { imgEl.style.width = '100%'; imgEl.style.height = 'auto'; imgEl.style.maxWidth = 'none'; imgEl.style.maxHeight = 'none'; imgEl.style.objectFit = ''; }
+  else if (fitMode === 'height') { imgEl.style.height = '100%'; imgEl.style.width = 'auto'; imgEl.style.maxWidth = 'none'; imgEl.style.maxHeight = 'none'; imgEl.style.objectFit = ''; }
+
+  // pan is only available in Original/Optimized (not Compare, which has its own divider drag)
+  // and not while actively cropping (the crop overlay's own handles take over dragging then).
+  const item = getSelectedItem();
+  const cropActive = viewMode === 'original' && item && item.cropEnabled;
+  if (viewMode !== 'compare' && !cropActive) {
+    const cw = previewWrap.clientWidth, ch = previewWrap.clientHeight;
+    panBounds.maxX = Math.max(0, (imgEl.offsetWidth * scale - cw) / 2);
+    panBounds.maxY = Math.max(0, (imgEl.offsetHeight * scale - ch) / 2);
+    panX = clamp(panX, -panBounds.maxX, panBounds.maxX);
+    panY = clamp(panY, -panBounds.maxY, panBounds.maxY);
+    imgEl.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+    previewWrap.style.cursor = (panBounds.maxX > 0 || panBounds.maxY > 0) ? 'grab' : '';
+  } else {
+    imgEl.style.transform = `scale(${scale})`;
+    previewWrap.style.cursor = '';
+  }
+}
+function startImagePan(e) {
+  if (viewMode === 'compare') return;
+  const item = getSelectedItem();
+  if (viewMode === 'original' && item && item.cropEnabled) return; // crop handles own the drag
+  if (panBounds.maxX <= 0 && panBounds.maxY <= 0) return; // nothing to pan
+  e.preventDefault();
+  isPanning = true;
+  panDragStart = { x: e.clientX, y: e.clientY, panX, panY };
+  previewWrap.style.cursor = 'grabbing';
+  const activeImg = viewMode === 'original' ? origImg : optImg;
+  function onMove(ev) {
+    const dx = ev.clientX - panDragStart.x;
+    const dy = ev.clientY - panDragStart.y;
+    panX = clamp(panDragStart.panX + dx, -panBounds.maxX, panBounds.maxX);
+    panY = clamp(panDragStart.panY + dy, -panBounds.maxY, panBounds.maxY);
+    activeImg.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomPct / 100})`;
+  }
+  function onUp() {
+    isPanning = false;
+    previewWrap.style.cursor = (panBounds.maxX > 0 || panBounds.maxY > 0) ? 'grab' : '';
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+  }
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+}
+previewWrap.addEventListener('pointerdown', startImagePan);
+fitModeSelect.addEventListener('change', () => {
+  fitMode = fitModeSelect.value;
+  zoomPct = 100;
+  zoomPctInput.value = 100;
+  renderCenterPreview();
+});
+zoomInBtn.addEventListener('click', () => { zoomPct = Math.min(1000, zoomPct + 10); zoomPctInput.value = zoomPct; renderCenterPreview(); });
+zoomOutBtn.addEventListener('click', () => { zoomPct = Math.max(10, zoomPct - 10); zoomPctInput.value = zoomPct; renderCenterPreview(); });
+zoomResetBtn.addEventListener('click', () => { zoomPct = 100; zoomPctInput.value = 100; renderCenterPreview(); });
+zoomPctInput.addEventListener('input', () => {
+  const n = clamp(parseInt(zoomPctInput.value, 10) || zoomPct, 10, 1000);
+  zoomPct = n;
+  debounce(renderCenterPreview, 150);
+});
+zoomPctInput.addEventListener('blur', () => {
+  const n = clamp(parseInt(zoomPctInput.value, 10) || 100, 10, 1000);
+  zoomPct = n;
+  zoomPctInput.value = n;
+  renderCenterPreview();
+});
+
+// ============================================================
+// core conversion
+// ============================================================
+function convertImage(img, w, h, quality, format, cropRect, dpi) {
+  return new Promise((resolve, reject) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (format === 'jpeg') { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h); }
+    const { sx, sy, sw, sh } = cropRect || { sx: 0, sy: 0, sw: img.naturalWidth, sh: img.naturalHeight };
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+    const mime = MIME[format];
+    const q = (format === 'png') ? undefined : quality;
+    canvas.toBlob(async (blob) => {
+      if (!blob) return reject(new Error('encode failed — format may be unsupported in this browser'));
+      if (format === 'jpeg') { try { blob = await setJpegDpi(blob, dpi || 72); } catch (e) {} }
+      resolve(blob);
+    }, mime, q);
+  });
+}
+async function setJpegDpi(blob, dpi) {
+  const buf = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  if (bytes[0] !== 0xFF || bytes[1] !== 0xD8) throw new Error('not a JPEG');
+  const hasJFIF = bytes[2] === 0xFF && bytes[3] === 0xE0 && bytes[6] === 0x4A && bytes[7] === 0x46 && bytes[8] === 0x49 && bytes[9] === 0x46 && bytes[10] === 0x00;
+  if (hasJFIF) {
+    bytes[13] = 1;
+    bytes[14] = (dpi >> 8) & 0xFF; bytes[15] = dpi & 0xFF;
+    bytes[16] = (dpi >> 8) & 0xFF; bytes[17] = dpi & 0xFF;
+    return new Blob([bytes], { type: 'image/jpeg' });
+  }
+  const jfif = new Uint8Array([0xFF,0xE0,0x00,0x10,0x4A,0x46,0x49,0x46,0x00,0x01,0x02,0x01,(dpi>>8)&0xFF,dpi&0xFF,(dpi>>8)&0xFF,dpi&0xFF,0x00,0x00]);
+  const out = new Uint8Array(2 + jfif.length + (bytes.length - 2));
+  out.set([0xFF, 0xD8], 0); out.set(jfif, 2); out.set(bytes.slice(2), 2 + jfif.length);
+  return new Blob([out], { type: 'image/jpeg' });
+}
+
+// ============================================================
+// center viewer render (Original / Optimized / Compare)
+// ============================================================
+let previewRenderToken = 0;
+async function renderCenterPreview() {
+  zoomResetBtn.style.display = (zoomPct !== 100) ? '' : 'none';
+  const item = getSelectedItem();
+  origImg.style.display = 'none';
+  optImg.style.display = 'none';
+  compareWrap.classList.remove('active');
+
+  if (!item || !item.iw) {
+    previewEmpty.style.display = 'block'; previewEmpty.textContent = 'No image selected';
+    cropOverlay.style.display = 'none';
+    return;
+  }
+  origImg.src = item.url;
+  origImg.alt = `Original preview of ${item.file.name}`;
+
+  if (viewMode === 'original') {
+    origImg.style.display = 'block';
+    previewEmpty.style.display = 'none';
+    applyFitAndZoom(origImg);
+    layoutCropBox();
+    return;
+  }
+
+  layoutCropBox(); // hides overlay outside Original view
+  const row = rows[0];
+  if (!row) {
+    previewEmpty.style.display = 'block'; previewEmpty.textContent = 'Add an export style';
+    return;
+  }
+  previewEmpty.style.display = 'block'; previewEmpty.textContent = 'Rendering…';
+
+  const myToken = ++previewRenderToken;
+  const cropRect = effectiveCropRect(item);
+  const w = item.workingW, h = item.workingH;
+  try {
+    const blob = await convertImage(item.img, w, h, item.quality / 100, row.format, cropRect, item.dpi);
+    if (myToken !== previewRenderToken) return; // stale
+    const objUrl = URL.createObjectURL(blob);
+
+    if (viewMode === 'optimized') {
+      optImg.src = objUrl;
+      optImg.alt = `Optimized preview of ${item.file.name}`;
+      optImg.style.display = 'block'; previewEmpty.style.display = 'none';
+      applyFitAndZoom(optImg);
+    } else if (viewMode === 'compare') {
+      compareOrigImg.src = item.url;
+      compareOrigImg.alt = `Original preview of ${item.file.name}`;
+      compareOptImg.src = objUrl;
+      compareOptImg.alt = `Optimized preview of ${item.file.name}`;
+      compareWrap.classList.add('active');
+      previewEmpty.style.display = 'none';
+      applyFitAndZoom(compareOrigImg);
+      applyFitAndZoom(compareOptImg);
+    }
+  } catch (err) {
+    previewEmpty.style.display = 'block'; previewEmpty.textContent = 'Preview failed';
+  }
+}
+
+// ============================================================
+// export rows (shared recipe, applied to every image on export)
+// ============================================================
+const ALL_FORMATS = ['jpeg', 'webp', 'png'];
+const ALL_SCALES = SCALE_OPTIONS.map(o => o.value);
+// remember the export rows across visits, so reloading the page restores your last setup
+// instead of resetting to the JPG/WEBP/WEBP defaults every time
+const EXPORT_ROWS_STORAGE_KEY = 'imageSwapper.exportRows';
+function saveExportRows() {
+  try {
+    localStorage.setItem(EXPORT_ROWS_STORAGE_KEY, JSON.stringify(rows.map(r => ({ format: r.format, scale: r.scale }))));
+  } catch (e) { /* storage unavailable (private browsing, disabled, quota) — fail silently */ }
+}
+function loadExportRows() {
+  try {
+    const raw = localStorage.getItem(EXPORT_ROWS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    const valid = parsed.filter(r => r && ALL_FORMATS.includes(r.format) && ALL_SCALES.includes(r.scale));
+    return valid.length ? valid : null;
+  } catch (e) { return null; }
+}
+function comboExists(format, scale, excludeId) {
+  return rows.some(r => r.id !== excludeId && r.format === format && r.scale === scale);
+}
+function nextAvailableCombo() {
+  for (const scale of ALL_SCALES) {
+    for (const format of ALL_FORMATS) {
+      if (!comboExists(format, scale, null)) return { format, scale };
+    }
+  }
+  return null;
+}
+function addRow(format = 'jpeg', scale = '1x') {
+  if (comboExists(format, scale, null)) return; // no duplicate export types
+  const id = 'r' + (rowCounter++);
+  rows.push({ id, format, scale });
+  renderRows();
+  refreshRowStats();
+  saveExportRows();
+  updateSaveAllLabel();
+  if (rows.length === 1) renderCenterPreview();
+}
+function removeRow(id) {
+  rows = rows.filter(r => r.id !== id);
+  renderRows();
+  refreshRowStats();
+  saveExportRows();
+  updateSaveAllLabel();
+  renderCenterPreview();
+}
+addRowBtn.addEventListener('click', () => {
+  const combo = nextAvailableCombo();
+  if (!combo) { alert('All export type combinations have already been added.'); return; }
+  addRow(combo.format, combo.scale);
+});
+
+function renderRows() {
+  rowsList.innerHTML = '';
+  rows.forEach(row => {
+    const el = document.createElement('div');
+    el.className = 'exp-row2';
+    el.dataset.id = row.id;
+    el.innerHTML = `
+      <div class="exp-row2-top">
+        <select class="fmt-select" aria-label="Export format">
+          <option value="jpeg">JPG</option>
+          <option value="webp">WEBP</option>
+          <option value="png">PNG</option>
+        </select>
+        <select class="scale-select" aria-label="Export scale">
+          <option value="0.5x">0.5x</option>
+          <option value="0.75x">0.75x</option>
+          <option value="1x">1x</option>
+          <option value="1.5x">1.5x</option>
+          <option value="2x">2x</option>
+          <option value="3x">3x</option>
+          <option value="4x">4x</option>
+          <option value="512w">512w</option>
+          <option value="512h">512h</option>
+        </select>
+        <button type="button" class="btn-primary icon-btn dl-btn" title="Download this style"><img src="images/download.svg" alt=""/></button>
+        <button type="button" class="icon-btn del-btn" title="Remove"><img src="images/close-x.svg" alt=""/></button>
+      </div>
+      <div class="exp-row2-stats">
+        <span class="size-compare"><span class="orig-size">—</span><span>→</span><span class="comp-size">—</span></span><span class="diff"></span>
+      </div>
+    `;
+    el.querySelector('.fmt-select').value = row.format;
+    el.querySelector('.scale-select').value = row.scale;
+    el.querySelector('.fmt-select').addEventListener('change', e => {
+      const newFormat = e.target.value;
+      if (comboExists(newFormat, row.scale, row.id)) {
+        alert(`${FORMAT_LABEL[newFormat]} ${scaleSuffix(row.scale) || '@1x'} is already one of your export types.`);
+        e.target.value = row.format;
+        return;
+      }
+      row.format = newFormat;
+      refreshRowStats();
+      refreshRowAvailability();
+      saveExportRows();
+      if (rows[0] === row) renderCenterPreview();
+    });
+    el.querySelector('.scale-select').addEventListener('change', e => {
+      const newScale = e.target.value;
+      if (comboExists(row.format, newScale, row.id)) {
+        alert(`${FORMAT_LABEL[row.format]} ${scaleSuffix(newScale) || '@1x'} is already one of your export types.`);
+        e.target.value = row.scale;
+        return;
+      }
+      row.scale = newScale;
+      refreshRowStats();
+      refreshRowAvailability();
+      saveExportRows();
+    });
+    el.querySelector('.dl-btn').addEventListener('click', () => downloadRowForSelected(row));
+    el.querySelector('.del-btn').addEventListener('click', () => removeRow(row.id));
+    rowsList.appendChild(el);
+  });
+  refreshRowAvailability();
+}
+
+// disable format/scale options that would duplicate another row's export type
+function refreshRowAvailability() {
+  const cards = Array.from(rowsList.children);
+  cards.forEach(card => {
+    const row = rows.find(r => r.id === card.dataset.id);
+    if (!row) return;
+    const fmtSel = card.querySelector('.fmt-select');
+    const scaleSel = card.querySelector('.scale-select');
+    Array.from(fmtSel.options).forEach(opt => { opt.disabled = comboExists(opt.value, row.scale, row.id); });
+    Array.from(scaleSel.options).forEach(opt => { opt.disabled = comboExists(row.format, opt.value, row.id); });
+  });
+}
+
+async function refreshRowStats() {
+  const item = getSelectedItem();
+  const cards = Array.from(rowsList.children);
+  if (!item || !item.iw) {
+    cards.forEach(c => { c.querySelector('.orig-size').textContent = '—'; c.querySelector('.comp-size').textContent = '—'; c.querySelector('.diff').textContent = ''; });
+    return;
+  }
+  const cropRect = effectiveCropRect(item);
+  for (const row of rows) {
+    const card = rowsList.querySelector(`.exp-row2[data-id="${row.id}"]`);
+    if (!card) continue;
+    const { w, h } = computeRowDims(item, row);
+    card.querySelector('.orig-size').textContent = fmtBytes(item.file.size);
+    card.querySelector('.comp-size').textContent = '…';
+    try {
+      const blob = await convertImage(item.img, w, h, item.quality / 100, row.format, cropRect, item.dpi);
+      card.querySelector('.comp-size').textContent = fmtBytes(blob.size);
+      const delta = blob.size - item.file.size;
+      const pct = Math.abs(Math.round((delta / item.file.size) * 100));
+      const diffEl = card.querySelector('.diff');
+      if (delta <= 0) { diffEl.textContent = `${pct}% smaller`; diffEl.className = 'diff smaller'; }
+      else { diffEl.textContent = `${pct}% larger`; diffEl.className = 'diff larger'; }
+      row._lastBlob = blob; row._lastW = w; row._lastH = h;
+    } catch (e) {
+      card.querySelector('.comp-size').textContent = 'error';
+    }
+  }
+}
+
+async function downloadRowForSelected(row) {
+  const item = getSelectedItem();
+  if (!item) return;
+  const cropRect = effectiveCropRect(item);
+  const { w, h } = computeRowDims(item, row);
+  const blob = await convertImage(item.img, w, h, item.quality / 100, row.format, cropRect, item.dpi);
+  const suffix = scaleSuffix(row.scale);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${item.filename}${suffix}.${EXT[row.format]}`;
+  a.click();
+}
+
+// default export style: JPG @1x — or your last-used set, if this browser remembers one
+// from a previous visit.
+const savedExportRows = loadExportRows();
+if (savedExportRows) {
+  savedExportRows.forEach(r => addRow(r.format, r.scale));
+} else {
+  addRow('jpeg', '1x');
+}
+
+// ============================================================
+// Save all (current image, individual downloads) / Download ZIP
+// ============================================================
+// ============================================================
+// tooltip icons (e.g. the Quality info icon) — shown via a shared, fixed-position bubble
+// so it isn't clipped by any ancestor's overflow:hidden (rails included)
+// ============================================================
+function showTooltip(el) {
+  tooltipBubble.textContent = el.dataset.tooltip || '';
+  tooltipBubble.style.display = 'block';
+  const rect = el.getBoundingClientRect();
+  const bubbleRect = tooltipBubble.getBoundingClientRect();
+  let left = rect.left + rect.width / 2 - bubbleRect.width / 2;
+  left = clamp(left, 8, window.innerWidth - bubbleRect.width - 8);
+  let top = rect.top - bubbleRect.height - 8;
+  if (top < 8) top = rect.bottom + 8; // flip below if there's no room above
+  tooltipBubble.style.left = left + 'px';
+  tooltipBubble.style.top = top + 'px';
+}
+function hideTooltip() {
+  tooltipBubble.style.display = 'none';
+}
+document.querySelectorAll('.tooltip-icon').forEach(el => {
+  el.addEventListener('mouseenter', () => showTooltip(el));
+  el.addEventListener('mouseleave', hideTooltip);
+  el.addEventListener('focus', () => showTooltip(el));
+  el.addEventListener('blur', hideTooltip);
+});
+window.addEventListener('scroll', hideTooltip, true);
+window.addEventListener('resize', hideTooltip);
+
+saveAllBtn.addEventListener('click', async () => {
+  const item = getSelectedItem();
+  if (!item || rows.length === 0) return;
+  saveAllBtn.disabled = true;
+  for (const row of rows) {
+    await downloadRowForSelected(row);
+    await new Promise(r => setTimeout(r, 150));
+  }
+  saveAllBtn.disabled = false;
+});
+downloadZipBtn.addEventListener('click', async () => {
+  if (items.length === 0 || rows.length === 0) return;
+  downloadZipBtnLabel.textContent = 'Zipping…';
+  const zip = new JSZip();
+  for (const it of items) {
+    if (!it.iw) continue;
+    const cropRect = effectiveCropRect(it);
+    const folder = zip.folder(it.filename);
+    for (const row of rows) {
+      const { w, h } = computeRowDims(it, row);
+      const suffix = scaleSuffix(row.scale);
+      try {
+        const blob = await convertImage(it.img, w, h, it.quality / 100, row.format, cropRect, it.dpi);
+        folder.file(`${it.filename}${suffix}.${EXT[row.format]}`, blob);
+      } catch (e) { /* skip failed variant */ }
+    }
+  }
+  const content = await zip.generateAsync({ type: 'blob' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(content);
+  a.download = 'converted-images.zip';
+  a.click();
+  downloadZipBtnLabel.textContent = 'Download ZIP';
+});
+
+// ============================================================
+// refresh everything relevant to the current image
+// ============================================================
+function refreshAll() {
+  renderCenterPreview();
+  refreshRowStats();
+}
+
+// ============================================================
+// select all text on focus, so typing immediately replaces the value
+// (rAF-deferred because Safari otherwise collapses the selection on the
+// same click's mouseup, right after focus fires)
+// ============================================================
+document.querySelectorAll('input[type="text"], input[type="number"]').forEach(inp => {
+  inp.addEventListener('focus', () => requestAnimationFrame(() => inp.select()));
+});
+</script>
+</body>
+</html>
