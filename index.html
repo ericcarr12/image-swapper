@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Image Swapper — Convert to JPG/WEBP/PNG</title>
 <link rel="icon" type="image/x-icon" href="images/imageswapper.ico">
+<!-- the jSquash WebP encoder imports this by bare name; the map resolves it for the browser -->
+<script type="importmap">{"imports":{"wasm-feature-detect":"https://cdn.jsdelivr.net/npm/wasm-feature-detect@1.8.0/dist/esm/index.js"}}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,1..1000&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
@@ -186,7 +188,7 @@ footer {
 }
 .row-align, .row-align-resp { display:flex; align-items:center; gap:16px; }
 .row-align8 { display:flex; align-items:center; gap:8px; }
-.tooltip-icon{ cursor:help; }
+.tooltip-icon{ cursor:help; border:none; background:transparent; padding:0; display:inline-flex; align-items:center; }
 /* position:fixed (not absolute) so this escapes .rail's overflow:hidden clipping — same
    reason the Save-all popover menu uses fixed positioning. Coordinates are computed by JS
    from the hovered/focused icon's bounding rect. */
@@ -199,6 +201,9 @@ footer {
 }
 .row-space { display:flex; align-items:center; gap:16px; justify-content:space-between; width:100%; }
 h1 { font-size: 2em; font-weight:200; color:var(--white); font-family: "Google Sans Flex", sans-serif; font-optical-sizing: auto;}
+/* dz-heading: preserves the original visual size/weight/color of the dropzone's marketing
+   headline now that it's semantically an h2 (the page's real h1 is the sr-only one above it) */
+.dz-heading { font-size: 2em; font-weight:200; color:var(--white); font-family: "Google Sans Flex", sans-serif; font-optical-sizing: auto; }
 h2 { font-size: 1.8em; font-weight:200; color:var(--swapblue); font-family: "Google Sans Flex", sans-serif; font-optical-sizing: auto; }
 h3 { font-size: 1.5em; font-weight:200; color:var(--white); }
 h4 { font-size: 1.1em; font-weight:300; color:var(--white); }
@@ -230,6 +235,13 @@ small { font-size: 0.875em; font-weight:300; color:var(--white); }
   field-sizing: content;
   min-width: 50px;
   max-width: 100%;
+}
+/* explicit placeholder color: the browser default placeholder gray is tuned for light
+   backgrounds and fails contrast against this black input fill — pin it to --muted
+   (verified ~11:1 against black) instead of leaving it to the UA stylesheet */
+.text-input::placeholder, input[type=number]::placeholder{
+  color: var(--muted);
+  opacity: 1;
 }
 /* hide the native number-input spin buttons everywhere; the field is still type="number"
    underneath, so keyboard/screen-reader/mobile-keypad behavior is unaffected */
@@ -575,7 +587,7 @@ select{
     <div class="share-link-row">
       <label for="shareLinkInput" class="sr-only">Shareable link</label>
       <input type="text" class="text-input" id="shareLinkInput" readonly>
-      <button type="button" class="btn-primary" id="copyShareLinkBtn"><img src="images/copy.svg" alt=""/> <span id="copyShareLinkBtnLabel">Copy</span></button>
+      <button type="button" class="btn-primary" id="copyShareLinkBtn"><img src="images/copy.svg" alt=""/> <span id="copyShareLinkBtnLabel" aria-live="polite">Copy</span></button>
     </div>
     <div class="share-options-row">
       <a class="share-option" id="shareEmailLink" href="#" title="Share via Email"><img src="images/email.svg" alt=""/></a>
@@ -626,11 +638,14 @@ select{
   </div>
 </nav>
 <main class="abs-center">
+  <!-- persistent page-level heading: stays in the DOM through both the dropzone and
+       post-upload workspace states, so heading-navigation always has a top-level anchor -->
+  <h1 class="sr-only">Image Swapper — Free Image Converter &amp; Optimizer</h1>
   <div class="wrap">
     <div class="dropzone" id="dropzone">
       <div class="dz-full">
         <div class="dropzone-content">
-          <h1>FREE Image Converter & Optimizer</h1>
+          <h2 class="dz-heading">FREE Image Converter & Optimizer</h2>
           <div class="line"></div>
           <div class="flexcol gap24">
             <div class="flexcol gap16">
@@ -661,7 +676,7 @@ select{
     <div class="workspace" id="workspace" style="display:none;">
       <div class="thumb-row">
         <div class="thumb-count-cell">
-          <div><span id="thumbCountCur">0</span> of <span id="thumbCountMax">20</span></div>
+          <div aria-live="polite"><span id="thumbCountCur">0</span> of <span id="thumbCountMax">20</span></div>
           <button type="button" class="btn-secondary" id="clearBtn"><img src="images/delete.svg" alt=""/> Clear</button>
         </div>
         <div class="thumb-scroll-group">
@@ -804,7 +819,7 @@ select{
               <div class="flexcol gap16">
                 <div class="row-space">
                   <div class="row-align8">
-                    <p id="qualityLabel">Quality</p><img class="tooltip-icon" src="images/tooltip1.svg" alt="" tabindex="0" data-tooltip="Only affects JPG and WEBP. PNG is lossless." aria-label="Only affects JPG and WEBP. PNG is lossless." />
+                    <p id="qualityLabel">Quality</p><button type="button" class="tooltip-icon" data-tooltip="Only affects JPG and WEBP. PNG is lossless." aria-label="Only affects JPG and WEBP. PNG is lossless."><img src="images/tooltip1.svg" alt="" /></button>
                   </div>
                   <div class="quality-status" id="qualityStatus">Very High</div>
                 </div>
@@ -822,7 +837,7 @@ select{
                 <button type="button" class="btn-primary" id="saveAllBtn"><img src="images/download.svg" alt=""/> <span id="saveAllBtnLabel">Save all</span></button>
               </div>
               <div id="zipSection" class="row-space top-border">
-                <p>Download all <span id="zipImageCount">0</span> images with current export settings</p>
+                <p aria-live="polite">Download all <span id="zipImageCount">0</span> images with current export settings</p>
                 <button type="button" class="btn-secondary" id="downloadZipBtn"><img src="images/download-white.svg" alt=""/><span id="downloadZipBtnLabel">Download ZIP</span></button>
               </div>
             </div>
@@ -1794,6 +1809,7 @@ function convertImage(img, w, h, quality, format, cropRect, dpi) {
     if (format === 'jpeg') { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h); }
     const { sx, sy, sw, sh } = cropRect || { sx: 0, sy: 0, sw: img.naturalWidth, sh: img.naturalHeight };
     ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+    if (format === 'webp') return encodeWebp(canvas, ctx, quality).then(resolve, reject);
     const mime = MIME[format];
     const q = (format === 'png') ? undefined : quality;
     canvas.toBlob(async (blob) => {
@@ -1802,6 +1818,51 @@ function convertImage(img, w, h, quality, format, cropRect, dpi) {
       resolve(blob);
     }, mime, q);
   });
+}
+// WEBP goes through libwebp compiled to WASM (jSquash) instead of canvas.toBlob():
+// the browser encoder runs at its default effort (method 4), while method 6 spends
+// more CPU on rate-distortion search for a smaller file at the same quality. It also
+// works in Safari, whose toBlob() silently hands back a PNG for 'image/webp'.
+// Every WEBP is also encoded losslessly and the smaller file wins: for screenshots,
+// UI and flat graphics, lossless is often ~40% smaller than lossy and pixel-perfect,
+// while photos stay lossy. Loaded lazily on first WEBP encode; if the CDN import
+// fails we fall back to toBlob.
+const WEBP_OPTIONS = { method: 6 };
+const WEBP_LOSSLESS_OPTIONS = { lossless: 1, method: 4, quality: 75 };
+let webpEncoderPromise = null;
+function loadWebpEncoder() {
+  if (!webpEncoderPromise) {
+    webpEncoderPromise = import('https://cdn.jsdelivr.net/npm/@jsquash/webp@1.5.0/encode.js')
+      .then(m => m.default)
+      .catch(() => null);
+  }
+  return webpEncoderPromise;
+}
+// Photos have tens of thousands of distinct colours and never compress smaller
+// losslessly, so skip that (slow) attempt for them. Samples every 4th pixel.
+function hasFewColors(imageData, limit = 8192) {
+  const px = new Uint32Array(imageData.data.buffer);
+  const seen = new Set();
+  for (let i = 0; i < px.length; i += 4) {
+    seen.add(px[i]);
+    if (seen.size > limit) return false;
+  }
+  return true;
+}
+async function encodeWebp(canvas, ctx, quality) {
+  const encode = await loadWebpEncoder();
+  if (encode) {
+    try {
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const lossy = await encode(data, { ...WEBP_OPTIONS, quality: Math.round(quality * 100) });
+      const lossless = hasFewColors(data) ? await encode(data, WEBP_LOSSLESS_OPTIONS) : null;
+      const buf = lossless && lossless.byteLength < lossy.byteLength ? lossless : lossy;
+      return new Blob([buf], { type: 'image/webp' });
+    } catch (e) {}
+  }
+  const blob = await new Promise(r => canvas.toBlob(r, 'image/webp', quality));
+  if (!blob || blob.type !== 'image/webp') throw new Error('WEBP encoding is unsupported in this browser');
+  return blob;
 }
 async function setJpegDpi(blob, dpi) {
   const buf = await blob.arrayBuffer();
@@ -1968,7 +2029,7 @@ function renderRows() {
         <button type="button" class="btn-primary icon-btn dl-btn" title="Download this style"><img src="images/download.svg" alt=""/></button>
         <button type="button" class="icon-btn del-btn" title="Remove"><img src="images/close-x.svg" alt=""/></button>
       </div>
-      <div class="exp-row2-stats">
+      <div class="exp-row2-stats" aria-live="polite">
         <span class="size-compare"><span class="orig-size">—</span><span>→</span><span class="comp-size">—</span></span><span class="diff"></span>
       </div>
     `;
