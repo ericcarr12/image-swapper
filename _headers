@@ -1,7 +1,8 @@
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
-  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'self' https://imageswapper.com https://www.imageswapper.com https://eric-carr.com https://www.eric-carr.com
+  X-Frame-Options: SAMEORIGIN
   Permissions-Policy: camera=(), microphone=(), geolocation=()
 
 /
