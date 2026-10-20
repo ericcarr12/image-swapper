@@ -1108,13 +1108,17 @@ dropzone.addEventListener('drop', e => {
   dropzone.classList.remove('drag');
   dragDepth = 0;
   pageDropOverlay.classList.remove('active');
-  addFiles(e.dataTransfer.files);
+  addDropped(e.dataTransfer);
 });
 fileInput.addEventListener('change', () => { addFiles(fileInput.files); fileInput.value = ''; });
 
 const pageDropOverlay = document.getElementById('pageDropOverlay');
 let dragDepth = 0;
-function hasFiles(e) { return e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files'); }
+// A drag carries files, or (an image dragged in from another site) sometimes only its link
+function hasFiles(e) {
+  const types = Array.from((e.dataTransfer && e.dataTransfer.types) || []);
+  return types.includes('Files') || types.includes('text/uri-list');
+}
 window.addEventListener('dragenter', e => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; pageDropOverlay.classList.add('active'); });
 window.addEventListener('dragover', e => { if (!hasFiles(e)) return; e.preventDefault(); });
 window.addEventListener('dragleave', e => { if (!hasFiles(e)) return; dragDepth = Math.max(0, dragDepth - 1); if (dragDepth === 0) pageDropOverlay.classList.remove('active'); });
@@ -1123,7 +1127,37 @@ window.addEventListener('drop', e => {
   e.preventDefault();
   dragDepth = 0;
   pageDropOverlay.classList.remove('active');
-  addFiles(e.dataTransfer.files);
+  addDropped(e.dataTransfer);
+});
+
+// Sites allowed to hand images in: Eric's portfolio embeds this app as a live demo
+// and offers a sample image (sent with postMessage, or dragged in as a link)
+const TRUSTED_ORIGINS = ['https://eric-carr.com', 'https://www.eric-carr.com'];
+
+function addDropped(dataTransfer) {
+  if (dataTransfer.files && dataTransfer.files.length) { addFiles(dataTransfer.files); return; }
+  // No file came along, only a link: fetch it if it's from a trusted site
+  const link = (dataTransfer.getData('text/uri-list') || '').split(/\r?\n/).find(line => line && !line.startsWith('#'));
+  if (!link) return;
+  let url;
+  try { url = new URL(link); } catch (err) { return; }
+  if (!TRUSTED_ORIGINS.includes(url.origin)) return;
+  fetch(url.href)
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.blob(); })
+    .then(blob => addFiles([new File([blob], url.pathname.split('/').pop() || 'image', { type: blob.type })]))
+    .catch(() => {});
+}
+
+// {type: 'imageswapper:add-files', files: [File]} from a trusted site adds those images,
+// and the reply tells that site they arrived
+window.addEventListener('message', e => {
+  if (!TRUSTED_ORIGINS.includes(e.origin)) return;
+  const data = e.data;
+  if (!data || data.type !== 'imageswapper:add-files' || !Array.isArray(data.files)) return;
+  const files = data.files.filter(f => f instanceof File);
+  if (!files.length) return;
+  addFiles(files);
+  if (e.source) e.source.postMessage({ type: 'imageswapper:files-added', count: files.length }, e.origin);
 });
 
 function addFiles(fileList) {
